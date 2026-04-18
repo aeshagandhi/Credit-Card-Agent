@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run OCR + planning on a few receipt images from a folder."
+        description="Run the receipt pipeline on a few receipt images from a folder."
     )
     parser.add_argument(
         "--receipts-dir",
@@ -21,10 +21,22 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing receipt images.",
     )
     parser.add_argument(
+        "--pipeline-version",
+        choices=["v1", "v2"],
+        default=None,
+        help="Convenience preset. v1 = tesseract + planning v1. v2 = trocr + planning v2.",
+    )
+    parser.add_argument(
         "--ocr-method",
         choices=["tesseract", "trocr", "labels"],
-        default="tesseract",
-        help="OCR method to use.",
+        default=None,
+        help="Perception method to use. Overrides the pipeline preset if provided.",
+    )
+    parser.add_argument(
+        "--planning-version",
+        choices=["v1", "v2"],
+        default=None,
+        help="Planning version to use. Overrides the pipeline preset if provided.",
     )
     parser.add_argument(
         "--limit",
@@ -33,6 +45,20 @@ def parse_args() -> argparse.Namespace:
         help="Number of receipts to test.",
     )
     return parser.parse_args()
+
+
+def resolve_pipeline_settings(args: argparse.Namespace) -> tuple[str, str]:
+    if args.pipeline_version == "v1":
+        perception_method = args.ocr_method or "tesseract"
+        planning_version = args.planning_version or "v1"
+    elif args.pipeline_version == "v2":
+        perception_method = args.ocr_method or "trocr"
+        planning_version = args.planning_version or "v2"
+    else:
+        perception_method = args.ocr_method or "tesseract"
+        planning_version = args.planning_version or "v1"
+
+    return perception_method, planning_version
 
 
 def main() -> None:
@@ -45,15 +71,20 @@ def main() -> None:
     if not receipt_paths:
         raise FileNotFoundError(f"No .jpg files found in: {receipts_dir}")
 
+    perception_method, planning_version = resolve_pipeline_settings(args)
     perception = ReceiptPerception()
-    planner = ReceiptPlanner()
+    planner = ReceiptPlanner(default_version=planning_version)
 
     for receipt_path in receipt_paths:
         print(f"\n{'=' * 80}")
         print(f"Receipt: {receipt_path.name}")
+        print(f"Pipeline: perception={perception_method}, planning={planning_version}")
 
-        ocr_result = perception.extract_text(receipt_path, method=args.ocr_method)
-        spending_profile = planner.build_spending_profile(ocr_result.text)
+        ocr_result = perception.extract_text(receipt_path, method=perception_method)
+        spending_profile = planner.build_spending_profile(
+            ocr_result.text,
+            version=planning_version,
+        )
 
         print("\nOCR preview:")
         preview_lines = ocr_result.text.splitlines()[:12]
@@ -66,7 +97,8 @@ def main() -> None:
 
         print("\nParsed line items:")
         for item in spending_profile.line_items[:8]:
-            print(f"  {item.description} -> {item.category} (${item.amount:.2f})")
+            score_text = f" [score={item.score:.2f}]" if item.score is not None else ""
+            print(f"  {item.description} -> {item.category} (${item.amount:.2f}){score_text}")
 
         if not spending_profile.line_items:
             print("  [No line items parsed]")

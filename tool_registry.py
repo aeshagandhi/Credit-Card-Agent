@@ -145,7 +145,7 @@ def tool_web_search(query: str, num_results: int = 5) -> dict:
     num_results = min(int(num_results), 10)
     try:
         with DDGS() as ddgs:
-            results = list(DDGS().text(query, max_results=num_results))
+            results = list(ddgs.text(query, max_results=num_results))
         if not results:
             return {"error": "No results found.", "results": []}
         cleaned = [

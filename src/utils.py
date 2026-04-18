@@ -1,1 +1,147 @@
+from __future__ import annotations
 
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+from typing import Any
+
+try:
+    from control import CreditCardRecommender
+    from perception import OCRResult, ReceiptPerception
+    from planning import CATEGORIES, ReceiptPlanner, SpendingProfile
+except ImportError:  # pragma: no cover
+    from src.control import CreditCardRecommender
+    from src.perception import OCRResult, ReceiptPerception
+    from src.planning import CATEGORIES, ReceiptPlanner, SpendingProfile
+
+
+def resolve_pipeline_settings(
+    pipeline_version: str | None = None,
+    ocr_method: str | None = None,
+    planning_version: str | None = None,
+) -> tuple[str, str]:
+    if pipeline_version == "v1":
+        perception_method = ocr_method or "tesseract"
+        selected_planning_version = planning_version or "v1"
+    elif pipeline_version == "v2":
+        perception_method = ocr_method or "trocr"
+        selected_planning_version = planning_version or "v2"
+    else:
+        perception_method = ocr_method or "tesseract"
+        selected_planning_version = planning_version or "v1"
+
+    return perception_method, selected_planning_version
+
+
+def run_receipt_pipeline(
+    image_path: str | Path,
+    perception: ReceiptPerception | None = None,
+    planner: ReceiptPlanner | None = None,
+    recommender: CreditCardRecommender | None = None,
+    pipeline_version: str | None = None,
+    ocr_method: str | None = None,
+    planning_version: str | None = None,
+    run_control: bool = True,
+) -> dict[str, Any]:
+    perception_method, selected_planning_version = resolve_pipeline_settings(
+        pipeline_version=pipeline_version,
+        ocr_method=ocr_method,
+        planning_version=planning_version,
+    )
+
+    perception = perception or ReceiptPerception()
+    planner = planner or ReceiptPlanner(default_version=selected_planning_version)
+
+    ocr_result = perception.extract_text(image_path=image_path, method=perception_method)
+    spending_profile = planner.build_spending_profile(
+        ocr_result.text,
+        version=selected_planning_version,
+    )
+
+    recommendation = None
+    if run_control:
+        recommender = recommender or CreditCardRecommender()
+        recommendation = recommender.recommend_card(spending_profile)
+
+    return {
+        "pipeline": {
+            "perception_method": perception_method,
+            "planning_version": selected_planning_version,
+        },
+        "ocr_result": ocr_result,
+        "spending_profile": spending_profile,
+        "recommendation": recommendation,
+    }
+
+
+def merge_spending_profiles(
+    profiles: list[SpendingProfile],
+    source_names: list[str] | None = None,
+) -> SpendingProfile:
+    category_totals = {category: 0.0 for category in CATEGORIES}
+    line_items = []
+    uncategorized_lines: list[str] = []
+    merchants: list[str] = []
+
+    for profile in profiles:
+        if profile.merchant:
+            merchants.append(profile.merchant)
+
+        for category, amount in profile.category_totals.items():
+            category_totals[category] += amount
+
+        line_items.extend(profile.line_items)
+        uncategorized_lines.extend(profile.uncategorized_lines)
+
+    distinct_merchants = sorted(set(merchants))
+    if not distinct_merchants:
+        merchant = None
+    elif len(distinct_merchants) == 1:
+        merchant = distinct_merchants[0]
+    else:
+        merchant = "Multiple merchants"
+
+    planner_versions = sorted({profile.planner_version for profile in profiles if profile.planner_version})
+    merged_metadata = {
+        "source_receipt_count": len(profiles),
+        "source_receipts": source_names or [],
+        "source_planner_versions": planner_versions,
+    }
+
+    rounded_totals = {
+        category: round(amount, 2)
+        for category, amount in category_totals.items()
+    }
+
+    return SpendingProfile(
+        merchant=merchant,
+        category_totals=rounded_totals,
+        line_items=line_items,
+        uncategorized_lines=uncategorized_lines,
+        planner_version="aggregate",
+        planner_metadata=merged_metadata,
+    )
+
+
+def save_uploaded_bytes(file_name: str, file_bytes: bytes, suffix: str | None = None) -> Path:
+    effective_suffix = suffix or Path(file_name).suffix or ".jpg"
+    with NamedTemporaryFile(delete=False, suffix=effective_suffix) as handle:
+        handle.write(file_bytes)
+        return Path(handle.name)
+
+
+def preview_text(text: str, limit: int = 1400) -> str:
+    cleaned = text.strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit].rstrip() + "\n..."
+
+
+def ocr_result_as_dict(result: OCRResult) -> dict[str, Any]:
+    return {
+        "method": result.method,
+        "image_path": result.image_path,
+        "text": result.text,
+        "raw_text": result.raw_text,
+        "confidence": result.confidence,
+        "metadata": result.metadata,
+    }

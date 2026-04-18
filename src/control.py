@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
+import datetime as dt
 import json
 import os
 from pathlib import Path
@@ -13,14 +14,21 @@ try:
 except ImportError:  # pragma: no cover
     from src.planning import SpendingProfile
 
+from tool_registry import (
+    TOOL_SCHEMAS_OPENAI,
+    tool_calculator,
+    tool_fetch_webpage,
+    tool_save_research_note,
+    tool_web_search,
+)
 
-@dataclass
-class CardProfile:
-    name: str
-    issuer: str
-    annual_fee: float
-    rewards: dict[str, float]
-    notes: list[str] = field(default_factory=list)
+
+ALLOWED_TOOL_NAMES = {
+    "web_search",
+    "fetch_webpage",
+    "calculator",
+    "save_research_note",
+}
 
 
 @dataclass
@@ -34,6 +42,7 @@ class CardRecommendation:
     explanation: str
     caveats: list[str]
     card_rankings: list[dict[str, object]]
+    sources: list[dict[str, str]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -50,193 +59,182 @@ class CardRecommendation:
             "explanation": self.explanation,
             "caveats": self.caveats,
             "card_rankings": self.card_rankings,
+            "sources": self.sources,
         }
 
 
-DEFAULT_CARD_CATALOG = [
-    CardProfile(
-        name="Blue Cash Preferred",
-        issuer="American Express",
-        annual_fee=95.0,
-        rewards={
-            "groceries": 0.06,
-            "gas": 0.03,
-            "dining": 0.01,
-            "travel": 0.01,
-            "entertainment": 0.01,
-            "shopping": 0.01,
-            "healthcare": 0.01,
-            "other": 0.01,
-        },
-        notes=[
-            "Strong grocery rewards but includes an annual fee.",
-        ],
-    ),
-    CardProfile(
-        name="Amex Gold",
-        issuer="American Express",
-        annual_fee=325.0,
-        rewards={
-            "groceries": 0.04,
-            "dining": 0.04,
-            "travel": 0.03,
-            "gas": 0.01,
-            "entertainment": 0.01,
-            "shopping": 0.01,
-            "healthcare": 0.01,
-            "other": 0.01,
-        },
-        notes=[
-            "Good fit for dining and grocery-heavy profiles if spending is high enough.",
-        ],
-    ),
-    CardProfile(
-        name="Chase Sapphire Preferred",
-        issuer="Chase",
-        annual_fee=95.0,
-        rewards={
-            "travel": 0.02,
-            "dining": 0.03,
-            "groceries": 0.01,
-            "gas": 0.01,
-            "entertainment": 0.01,
-            "shopping": 0.01,
-            "healthcare": 0.01,
-            "other": 0.01,
-        },
-        notes=[
-            "Travel-oriented option with better value when travel and dining are important.",
-        ],
-    ),
-    CardProfile(
-        name="Citi Custom Cash",
-        issuer="Citi",
-        annual_fee=0.0,
-        rewards={
-            "groceries": 0.05,
-            "dining": 0.05,
-            "gas": 0.05,
-            "travel": 0.05,
-            "entertainment": 0.05,
-            "shopping": 0.05,
-            "healthcare": 0.05,
-            "other": 0.01,
-        },
-        notes=[
-            "Works best when one spending category clearly dominates.",
-        ],
-    ),
-    CardProfile(
-        name="Capital One SavorOne",
-        issuer="Capital One",
-        annual_fee=0.0,
-        rewards={
-            "dining": 0.03,
-            "entertainment": 0.03,
-            "groceries": 0.03,
-            "travel": 0.01,
-            "gas": 0.01,
-            "shopping": 0.01,
-            "healthcare": 0.01,
-            "other": 0.01,
-        },
-        notes=[
-            "Balanced no-fee option for groceries, dining, and entertainment.",
-        ],
-    ),
-    CardProfile(
-        name="Wells Fargo Active Cash",
-        issuer="Wells Fargo",
-        annual_fee=0.0,
-        rewards={
-            "groceries": 0.02,
-            "dining": 0.02,
-            "travel": 0.02,
-            "gas": 0.02,
-            "entertainment": 0.02,
-            "shopping": 0.02,
-            "healthcare": 0.02,
-            "other": 0.02,
-        },
-        notes=[
-            "Flat-rate option that can be better if spending is spread across many categories.",
-        ],
-    ),
-]
-
-
 class CreditCardRecommender:
-    """LLM-based control module for card recommendation."""
+    """Shared control stage using an LLM plus tool_registry web tools."""
 
     def __init__(
         self,
-        card_catalog: list[CardProfile] | None = None,
         model: str | None = None,
+        max_tool_rounds: int = 10,
     ) -> None:
         load_dotenv(_find_dotenv_path(), override=False)
-        self.card_catalog = card_catalog or DEFAULT_CARD_CATALOG
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        self.max_tool_rounds = max_tool_rounds
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY was not found in the environment or .env file.")
 
         self.client = OpenAI(api_key=api_key)
+        self.tools = [
+            schema
+            for schema in TOOL_SCHEMAS_OPENAI
+            if schema["function"]["name"] in ALLOWED_TOOL_NAMES
+        ]
+        self.tool_implementations = {
+            "web_search": tool_web_search,
+            "fetch_webpage": tool_fetch_webpage,
+            "calculator": tool_calculator,
+            "save_research_note": tool_save_research_note,
+        }
 
     def recommend_card(self, spending_profile: SpendingProfile) -> CardRecommendation:
-        prompt = self._build_user_prompt(spending_profile)
-        response = self.client.chat.completions.create(
-            model=self.model,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-            messages=[
-                {
-                    "role": "system",
-                    "content": self._system_prompt(),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
+        messages = [
+            {
+                "role": "system",
+                "content": self._system_prompt(),
+            },
+            {
+                "role": "user",
+                "content": self._build_user_prompt(spending_profile),
+            },
+        ]
+
+        used_tools: set[str] = set()
+        for _ in range(self.max_tool_rounds):
+            response = self.client.chat.completions.create(
+                model=self.model,
+                temperature=0.2,
+                messages=messages,
+                tools=self.tools,
+                tool_choice="auto",
+            )
+
+            message = response.choices[0].message
+            if message.tool_calls:
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": message.content or "",
+                        "tool_calls": [
+                            {
+                                "id": tool_call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_call.function.name,
+                                    "arguments": tool_call.function.arguments,
+                                },
+                            }
+                            for tool_call in message.tool_calls
+                        ],
+                    }
+                )
+
+                for tool_call in message.tool_calls:
+                    tool_name = tool_call.function.name
+                    used_tools.add(tool_name)
+                    tool_result = self._execute_tool_call(
+                        tool_name=tool_name,
+                        raw_arguments=tool_call.function.arguments,
+                    )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(tool_result),
+                        }
+                    )
+                continue
+
+            content = message.content or "{}"
+            if not {"web_search", "fetch_webpage"}.issubset(used_tools):
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "You have not yet completed enough live research. "
+                            "Use web_search and fetch_webpage before finalizing your recommendation."
+                        ),
+                    }
+                )
+                continue
+
+            try:
+                payload = json.loads(content)
+            except json.JSONDecodeError:
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "Your last response was not valid JSON. "
+                            "Return the same recommendation again as valid JSON only."
+                        ),
+                    }
+                )
+                continue
+            return self._normalize_payload(payload)
+
+        raise RuntimeError(
+            "The control agent did not finish within the allowed tool rounds."
         )
 
-        raw_content = response.choices[0].message.content or "{}"
-        payload = json.loads(raw_content)
-        return self._normalize_payload(payload)
-
     def _system_prompt(self) -> str:
+        today = dt.date.today().isoformat()
         return (
-            "You are a credit card recommendation agent for a class project. "
-            "You receive a structured spending profile extracted from a receipt. "
-            "Choose ONLY from the provided card catalog. "
+            "You are the shared control-phase agent for a credit-card recommendation project. "
+            f"Today's date is {today}. "
+            "Your job is to recommend the best current credit card and a runner-up based on a spending profile. "
+            "You must research live information before answering. "
+            "Always use web_search to discover relevant current card options and fetch_webpage to inspect promising sources. "
+            "Prefer official issuer pages when possible, but reputable comparison sites are acceptable for discovery. "
+            "Use calculator if it helps estimate annual reward value. "
+            "Be efficient: usually 1-2 search queries and 1-3 webpage fetches are enough before finalizing. "
             "Return valid JSON only. "
-            "Be conservative and practical. "
-            "Estimated annual value should be a reasonable NET dollar estimate after subtracting the annual fee when one exists. "
-            "The primary recommendation must match the first item in card_rankings. "
-            "The runner-up recommendation must match the second item in card_rankings. "
-            "The JSON must include these top-level keys exactly: "
-            "primary_recommendation, runner_up_recommendation, explanation, caveats, card_rankings."
+            "The JSON must include these keys exactly: "
+            "primary_recommendation, runner_up_recommendation, explanation, caveats, card_rankings, sources. "
+            "primary_recommendation must match card_rankings[0]. "
+            "runner_up_recommendation must match card_rankings[1]. "
+            "Keep caveats short and practical. "
+            "Each source must include title, url, and why_it_matters."
         )
 
     def _build_user_prompt(self, spending_profile: SpendingProfile) -> str:
-        catalog = [asdict(card) for card in self.card_catalog]
+        top_categories = [
+            {"category": category, "amount": amount}
+            for category, amount in sorted(
+                spending_profile.category_totals.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            if amount > 0
+        ]
+
+        search_hints = [
+            f"best credit cards for {entry['category']} rewards"
+            for entry in top_categories[:3]
+        ]
+        if not search_hints:
+            search_hints = ["best flat-rate cash back credit cards"]
+
         return json.dumps(
             {
-                "task": "Recommend the best credit card and a runner-up from the given catalog.",
-                "instructions": [
-                    "Use the spending profile as the main signal.",
-                    "Use the reward rates and annual fees in the card catalog.",
-                    "Prefer cards that realistically fit the spend pattern.",
-                    "Treat estimated_annual_value as net value after annual fee, not gross rewards.",
-                    "Return card_rankings as a list sorted from best to worst.",
-                    "Make primary_recommendation equal to card_rankings[0].",
-                    "Make runner_up_recommendation equal to card_rankings[1].",
-                    "Each entry in card_rankings should include card_name, issuer, estimated_annual_value, and reason.",
-                    "Keep caveats short and useful.",
+                "task": (
+                    "Use the spending profile to research current credit cards and recommend "
+                    "the best one plus a runner-up."
+                ),
+                "workflow": [
+                    "Search for current cards relevant to the top spending categories.",
+                    "Open promising pages to verify reward rates, fees, and positioning.",
+                    "Estimate the likely annual value for the user based on their spending profile.",
+                    "Return a concise structured recommendation with cited sources.",
+                    "Keep tool use efficient and finalize once you have enough evidence.",
                 ],
+                "suggested_search_queries": search_hints,
                 "spending_profile": spending_profile.as_dict(),
-                "card_catalog": catalog,
                 "response_schema": {
                     "primary_recommendation": {
                         "card_name": "string",
@@ -258,16 +256,39 @@ class CreditCardRecommender:
                             "reason": "string",
                         }
                     ],
+                    "sources": [
+                        {
+                            "title": "string",
+                            "url": "string",
+                            "why_it_matters": "string",
+                        }
+                    ],
                 },
             },
             indent=2,
         )
+
+    def _execute_tool_call(self, tool_name: str, raw_arguments: str) -> dict[str, object]:
+        if tool_name not in self.tool_implementations:
+            return {"error": f"Unknown tool requested: {tool_name}"}
+
+        try:
+            arguments = json.loads(raw_arguments) if raw_arguments else {}
+        except json.JSONDecodeError as exc:
+            return {"error": f"Could not parse tool arguments: {exc}"}
+
+        try:
+            result = self.tool_implementations[tool_name](**arguments)
+            return result if isinstance(result, dict) else {"result": result}
+        except Exception as exc:  # pragma: no cover - defensive tool wrapper
+            return {"error": str(exc), "tool_name": tool_name}
 
     def _normalize_payload(self, payload: dict[str, object]) -> CardRecommendation:
         primary = payload.get("primary_recommendation", {})
         runner_up = payload.get("runner_up_recommendation", {})
         caveats = payload.get("caveats", [])
         rankings = payload.get("card_rankings", [])
+        sources = payload.get("sources", [])
 
         if not isinstance(primary, dict) or not primary:
             raise ValueError("LLM response missing primary_recommendation.")
@@ -277,6 +298,29 @@ class CreditCardRecommender:
             caveats = []
         if not isinstance(rankings, list):
             rankings = []
+        if not isinstance(sources, list):
+            sources = []
+
+        normalized_rankings = [
+            {
+                "card_name": str(item.get("card_name", "")),
+                "issuer": str(item.get("issuer", "")),
+                "estimated_annual_value": float(item.get("estimated_annual_value", 0.0)),
+                "reason": str(item.get("reason", "")),
+            }
+            for item in rankings
+            if isinstance(item, dict)
+        ]
+
+        normalized_sources = [
+            {
+                "title": str(item.get("title", "")),
+                "url": str(item.get("url", "")),
+                "why_it_matters": str(item.get("why_it_matters", "")),
+            }
+            for item in sources
+            if isinstance(item, dict)
+        ]
 
         return CardRecommendation(
             primary_card=str(primary.get("card_name", "")),
@@ -287,16 +331,8 @@ class CreditCardRecommender:
             runner_up_estimated_value=float(runner_up.get("estimated_annual_value", 0.0)),
             explanation=str(payload.get("explanation", "")),
             caveats=[str(item) for item in caveats],
-            card_rankings=[
-                {
-                    "card_name": str(item.get("card_name", "")),
-                    "issuer": str(item.get("issuer", "")),
-                    "estimated_annual_value": float(item.get("estimated_annual_value", 0.0)),
-                    "reason": str(item.get("reason", "")),
-                }
-                for item in rankings
-                if isinstance(item, dict)
-            ],
+            card_rankings=normalized_rankings,
+            sources=normalized_sources,
         )
 
 

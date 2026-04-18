@@ -16,7 +16,7 @@ except ImportError:  # pragma: no cover
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run receipt OCR and planning on a single receipt image."
+        description="Run the receipt pipeline on a single receipt image."
     )
     parser.add_argument(
         "--image",
@@ -24,17 +24,43 @@ def parse_args() -> argparse.Namespace:
         help="Path to the receipt image file.",
     )
     parser.add_argument(
+        "--pipeline-version",
+        choices=["v1", "v2"],
+        default=None,
+        help="Convenience preset. v1 = tesseract + planning v1. v2 = trocr + planning v2.",
+    )
+    parser.add_argument(
         "--ocr-method",
         choices=["tesseract", "trocr", "labels"],
-        default="tesseract",
-        help="OCR method to use.",
+        default=None,
+        help="Perception method to use. Overrides the pipeline preset if provided.",
+    )
+    parser.add_argument(
+        "--planning-version",
+        choices=["v1", "v2"],
+        default=None,
+        help="Planning version to use. Overrides the pipeline preset if provided.",
     )
     parser.add_argument(
         "--save-json",
         default=None,
-        help="Optional path to save the combined OCR + planning output as JSON.",
+        help="Optional path to save the combined perception + planning + control output as JSON.",
     )
     return parser.parse_args()
+
+
+def resolve_pipeline_settings(args: argparse.Namespace) -> tuple[str, str]:
+    if args.pipeline_version == "v1":
+        perception_method = args.ocr_method or "tesseract"
+        planning_version = args.planning_version or "v1"
+    elif args.pipeline_version == "v2":
+        perception_method = args.ocr_method or "trocr"
+        planning_version = args.planning_version or "v2"
+    else:
+        perception_method = args.ocr_method or "tesseract"
+        planning_version = args.planning_version or "v1"
+
+    return perception_method, planning_version
 
 
 def main() -> None:
@@ -43,15 +69,24 @@ def main() -> None:
     if not image_path.exists():
         raise FileNotFoundError(f"Image not found: {image_path}")
 
+    perception_method, planning_version = resolve_pipeline_settings(args)
+
     perception = ReceiptPerception()
-    planner = ReceiptPlanner()
+    planner = ReceiptPlanner(default_version=planning_version)
     recommender = CreditCardRecommender()
 
-    ocr_result = perception.extract_text(image_path=image_path, method=args.ocr_method)
-    spending_profile = planner.build_spending_profile(ocr_result.text)
+    ocr_result = perception.extract_text(image_path=image_path, method=perception_method)
+    spending_profile = planner.build_spending_profile(
+        ocr_result.text,
+        version=planning_version,
+    )
     recommendation = recommender.recommend_card(spending_profile)
 
     output = {
+        "pipeline": {
+            "perception_method": perception_method,
+            "planning_version": planning_version,
+        },
         "ocr": {
             "method": ocr_result.method,
             "image_path": ocr_result.image_path,
@@ -62,6 +97,9 @@ def main() -> None:
         "planning": spending_profile.as_dict(),
         "control": recommendation.as_dict(),
     }
+
+    print("\n=== Pipeline Settings ===")
+    print(json.dumps(output["pipeline"], indent=2))
 
     print("\n=== OCR Text ===")
     print(ocr_result.text if ocr_result.text else "[No text extracted]")
