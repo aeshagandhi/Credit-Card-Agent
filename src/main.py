@@ -31,9 +31,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ocr-method",
-        choices=["tesseract", "trocr", "labels"],
+        choices=["tesseract", "trocr", "paddleocr", "labels"],
         default=None,
         help="Perception method to use. Overrides the pipeline preset if provided.",
+    )
+    parser.add_argument(
+        "--compare-ocr",
+        action="store_true",
+        help="Run all OCR methods (tesseract, trocr, paddleocr) and compare their outputs.",
     )
     parser.add_argument(
         "--planning-version",
@@ -69,13 +74,39 @@ def main() -> None:
     if not image_path.exists():
         raise FileNotFoundError(f"Image not found: {image_path}")
 
+    perception = ReceiptPerception()
+
+    if args.compare_ocr:
+        # Run all OCR methods and compare
+        methods = ["tesseract", "trocr", "paddleocr"]
+        ocr_results = {}
+        for method in methods:
+            try:
+                result = perception.extract_text(image_path, method=method)
+                ocr_results[method] = result
+            except Exception as e:
+                print(f"Error with {method}: {e}")
+                ocr_results[method] = None
+
+        print("\n=== OCR Comparison ===")
+        for method, result in ocr_results.items():
+            if result:
+                print(f"\n--- {method.upper()} ---")
+                print(f"Confidence: {result.confidence}")
+                print(f"Text:\n{result.text}")
+            else:
+                print(f"\n--- {method.upper()} ---")
+                print("Failed to run")
+        return
+
     perception_method, planning_version = resolve_pipeline_settings(args)
 
-    perception = ReceiptPerception()
     planner = ReceiptPlanner(default_version=planning_version)
     recommender = CreditCardRecommender()
 
-    ocr_result = perception.extract_text(image_path=image_path, method=perception_method)
+    ocr_result = perception.extract_text(
+        image_path=image_path, method=perception_method
+    )
     spending_profile = planner.build_spending_profile(
         ocr_result.text,
         version=planning_version,

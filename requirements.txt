@@ -1,10 +1,10 @@
-numpy<2
+numpy
 pandas
 opencv-python
 Pillow
 pytesseract
-transformers<5
-torch==2.2.2
+transformers
+torch
 openai
 python-dotenv
 datasets
@@ -13,3 +13,5 @@ beautifulsoup4
 ddgs
 arxiv
 streamlit
+# paddlepaddle
+paddleocr
