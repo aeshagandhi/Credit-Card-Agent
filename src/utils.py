@@ -32,6 +32,31 @@ def resolve_pipeline_settings(
     return perception_method, selected_planning_version
 
 
+def project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def list_receipt_images(receipts_dir: str | Path) -> list[Path]:
+    receipts_dir = Path(receipts_dir)
+    patterns = ("*.png", "*.jpg", "*.jpeg")
+    paths: list[Path] = []
+    for pattern in patterns:
+        paths.extend(sorted(receipts_dir.glob(pattern)))
+    return sorted(paths)
+
+
+def preferred_receipts_dir() -> Path:
+    root = project_root()
+    candidate_dirs = [
+        root / "data" / "receipts_nano",
+        root / "data" / "receipts",
+    ]
+    for candidate_dir in candidate_dirs:
+        if candidate_dir.exists() and list_receipt_images(candidate_dir):
+            return candidate_dir
+    return candidate_dirs[0]
+
+
 def run_receipt_pipeline(
     image_path: str | Path,
     perception: ReceiptPerception | None = None,

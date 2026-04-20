@@ -16,15 +16,18 @@ from src.control import CreditCardRecommender
 from src.perception import ReceiptPerception
 from src.planning import CATEGORIES, ReceiptPlanner
 from src.utils import (
+    list_receipt_images,
     merge_spending_profiles,
     ocr_result_as_dict,
+    project_root,
+    preferred_receipts_dir,
     preview_text,
     run_receipt_pipeline,
     save_uploaded_bytes,
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = project_root()
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 PIPELINE_PRESETS = {
@@ -274,6 +277,7 @@ def render_recommendation_card(title: str, issuer: str, value: float, eyebrow: s
 def build_input_assets(
     uploaded_files: list[Any] | None,
     selected_sample_names: list[str],
+    sample_dir: Path,
 ) -> list[dict[str, Any]]:
     assets: list[dict[str, Any]] = []
 
@@ -287,7 +291,6 @@ def build_input_assets(
                 }
             )
 
-    sample_dir = PROJECT_ROOT / "data" / "receipts"
     for sample_name in selected_sample_names:
         sample_path = sample_dir / sample_name
         if sample_path.exists():
@@ -485,8 +488,12 @@ def render_sidebar() -> tuple[str, bool, list[str]]:
         help="Turn this off if you want to inspect perception and planning only.",
     )
 
-    sample_dir = PROJECT_ROOT / "data" / "receipts"
-    sample_choices = [path.name for path in sorted(sample_dir.glob("*.jpg"))[:12]]
+    sample_dir = (
+        PROJECT_ROOT / "data" / "receipts"
+        if preset_name == "Labels Reference"
+        else preferred_receipts_dir()
+    )
+    sample_choices = [path.name for path in list_receipt_images(sample_dir)[:12]]
     selected_samples = st.sidebar.multiselect(
         "Or load sample receipts",
         sample_choices,
@@ -498,7 +505,7 @@ def render_sidebar() -> tuple[str, bool, list[str]]:
         "The control phase uses an LLM plus live web research tools. "
         "Multiple receipts are merged into one combined spending profile before the final recommendation."
     )
-    return preset_name, run_control, selected_samples
+    return preset_name, run_control, selected_samples, sample_dir
 
 
 def render_receipt_preview(assets: list[dict[str, Any]]) -> None:
@@ -521,7 +528,7 @@ def render_receipt_preview(assets: list[dict[str, Any]]) -> None:
 
 def main() -> None:
     inject_styles()
-    preset_name, run_control, selected_samples = render_sidebar()
+    preset_name, run_control, selected_samples, sample_dir = render_sidebar()
     preset = PIPELINE_PRESETS[preset_name]
 
     st.markdown(
@@ -561,13 +568,18 @@ def main() -> None:
         for uploaded in (uploaded_files or [])
     }
 
-    assets = build_input_assets(uploaded_files, selected_samples)
+    assets = build_input_assets(uploaded_files, selected_samples, sample_dir=sample_dir)
     render_receipt_preview(assets)
 
     analyze_clicked = st.button("Analyze Receipts", type="primary", use_container_width=True)
     if analyze_clicked:
         if not assets:
             st.warning("Upload at least one receipt image or choose a sample receipt first.")
+        elif preset_name == "Labels Reference" and uploaded_files:
+            st.warning(
+                "The labels reference mode only works with built-in SROIE sample receipts, "
+                "because it depends on matching dataset label files."
+            )
         else:
             try:
                 with st.spinner("Running the pipeline..."):

@@ -6,9 +6,11 @@ from pathlib import Path
 try:
     from perception import ReceiptPerception
     from planning import ReceiptPlanner
+    from utils import list_receipt_images, preferred_receipts_dir
 except ImportError:  # pragma: no cover
     from src.perception import ReceiptPerception
     from src.planning import ReceiptPlanner
+    from src.utils import list_receipt_images, preferred_receipts_dir
 
 
 def parse_args() -> argparse.Namespace:
@@ -17,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--receipts-dir",
-        default="data/receipts",
+        default=None,
         help="Directory containing receipt images.",
     )
     parser.add_argument(
@@ -63,13 +65,13 @@ def resolve_pipeline_settings(args: argparse.Namespace) -> tuple[str, str]:
 
 def main() -> None:
     args = parse_args()
-    receipts_dir = Path(args.receipts_dir)
+    receipts_dir = Path(args.receipts_dir) if args.receipts_dir else preferred_receipts_dir()
     if not receipts_dir.exists():
         raise FileNotFoundError(f"Receipts directory not found: {receipts_dir}")
 
-    receipt_paths = sorted(receipts_dir.glob("*.jpg"))[: args.limit]
+    receipt_paths = list_receipt_images(receipts_dir)[: args.limit]
     if not receipt_paths:
-        raise FileNotFoundError(f"No .jpg files found in: {receipts_dir}")
+        raise FileNotFoundError(f"No receipt images found in: {receipts_dir}")
 
     perception_method, planning_version = resolve_pipeline_settings(args)
     perception = ReceiptPerception()
