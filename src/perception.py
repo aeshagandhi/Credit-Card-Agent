@@ -276,6 +276,8 @@ class ReceiptPerception:
         angle = rect[-1]
         if angle < -45:
             angle = 90 + angle
+        elif angle > 45:
+            angle = angle - 90
         return -angle
 
     @staticmethod
