@@ -23,7 +23,7 @@ def resolve_pipeline_settings(
         perception_method = ocr_method or "tesseract"
         selected_planning_version = planning_version or "v1"
     elif pipeline_version == "v2":
-        perception_method = ocr_method or "trocr"
+        perception_method = ocr_method or "paddleocr"
         selected_planning_version = planning_version or "v2"
     else:
         perception_method = ocr_method or "tesseract"
@@ -48,6 +48,7 @@ def list_receipt_images(receipts_dir: str | Path) -> list[Path]:
 def preferred_receipts_dir() -> Path:
     root = project_root()
     candidate_dirs = [
+        root / "data" / "receipt_dataset" / "ds0" / "img",
         root / "data" / "receipts_nano",
         root / "data" / "receipts",
     ]
@@ -55,6 +56,42 @@ def preferred_receipts_dir() -> Path:
         if candidate_dir.exists() and list_receipt_images(candidate_dir):
             return candidate_dir
     return candidate_dirs[0]
+
+
+def preferred_labeled_receipts_dir() -> Path:
+    root = project_root()
+    candidate_dirs = [
+        root / "data" / "receipt_dataset" / "ds0" / "img",
+        root / "data" / "receipts",
+    ]
+    for candidate_dir in candidate_dirs:
+        if candidate_dir.exists() and list_receipt_images(candidate_dir):
+            return candidate_dir
+    return candidate_dirs[0]
+
+
+def has_reference_labels(image_path: str | Path) -> bool:
+    image_path = Path(image_path)
+    root = project_root()
+    local_json_candidates = [
+        root / "data" / "receipt_dataset" / "ds0" / "ann" / f"{image_path.name}.json",
+        root / "data" / "receipt_dataset" / "ds0" / "ann" / f"{image_path.stem}.json",
+    ]
+    if any(candidate.exists() for candidate in local_json_candidates):
+        return True
+
+    sroie_labels = root / "data" / "labels" / "sroie_labels.json"
+    if not sroie_labels.exists():
+        return False
+
+    try:
+        import json
+
+        index = json.loads(sroie_labels.read_text())
+    except Exception:
+        return False
+
+    return image_path.stem in index
 
 
 def run_receipt_pipeline(

@@ -23,9 +23,11 @@ Both versions share the same LLM-based control phase.
 
 ### Version 2: DL
 
-- `Perception`: TrOCR
+- `Perception`: PaddleOCR
 - `Planning`: transformer-based semantic transaction classifier
 - `Control`: shared LLM agent with web search
+
+TrOCR is still included in the repo as an experimental comparison OCR path, but the main `Version 2` pipeline now uses PaddleOCR because it performs much better on full receipt images.
 
 ### Reference Path
 
@@ -85,7 +87,7 @@ The same pipeline shape is used for both versions. Only perception and planning 
 
 Code: [src/perception.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/src/perception.py:1)
 
-The perception module converts a receipt image into text. It supports three modes.
+The perception module converts a receipt image into text. It supports four modes.
 
 ### `tesseract`
 
@@ -101,9 +103,24 @@ Processing steps:
 6. Run Tesseract OCR
 7. Clean and return text
 
+### `paddleocr`
+
+This is the main DL perception path used by `Version 2`.
+
+Processing steps:
+
+1. Load the original receipt image
+2. Run PaddleOCR document orientation handling
+3. Run PaddleOCR text detection
+4. Run PaddleOCR text recognition
+5. Collect detected text lines and confidence scores
+6. Clean and return text
+
+This works better than TrOCR in the current project because PaddleOCR is designed for full-page OCR with built-in detection, while TrOCR is being applied more directly to the whole receipt image.
+
 ### `trocr`
 
-This is the DL perception path.
+This is an experimental DL comparison path.
 
 Processing steps:
 
@@ -282,6 +299,7 @@ What the UI supports:
 - choose a pipeline preset:
   - `Version 1: Classical`
   - `Version 2: Deep Learning`
+  - `Experimental: TrOCR`
   - `Labels Reference`
 - combine multiple receipts into one spending profile
 - generate one final shared control-phase recommendation
@@ -299,7 +317,8 @@ The notebook now compares pipeline variants, not just OCR methods.
 Default configurations:
 
 - `version_1_non_dl`: `tesseract` + `planning v1`
-- `version_2_dl`: `trocr` + `planning v2`
+- `version_2_dl`: `paddleocr` + `planning v2`
+- `experimental_trocr`: `trocr` + `planning v2`
 - `labels_reference`: `labels` + `planning v2`
 
 The notebook shows:
@@ -361,6 +380,7 @@ pip install -r requirements.txt
 Important notes:
 
 - `torch` and `transformers` are required for TrOCR and planning V2
+- `paddleocr` and `paddlepaddle` are required for the main V2 OCR pipeline
 - the Tesseract binary must be installed separately on your machine
 - the notebook should use the project `.venv`
 - the control phase uses live web access through `tool_registry`, so internet access is required at runtime
@@ -370,7 +390,7 @@ Important notes:
 1. TrOCR is still being run on whole receipts instead of segmented lines.
 2. Planning V2 is transformer-based but not yet truly fine-tuned on a custom receipt transaction dataset.
 3. Control recommendations depend on the quality of both live web results and the upstream spending profile.
-4. OCR errors can still dominate the final recommendation quality.
+4. OCR errors can still dominate the final recommendation quality, even when PaddleOCR is stronger than the other current OCR options.
 
 ## Main Files
 

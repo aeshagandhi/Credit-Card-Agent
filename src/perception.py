@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import os
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -10,6 +11,13 @@ import cv2
 import numpy as np
 from PIL import Image
 import pytesseract
+
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
+try:
+    from paddleocr import PaddleOCR
+except ImportError:  # pragma: no cover - optional dependency at runtime
+    PaddleOCR = None
 
 try:
     from transformers import TrOCRProcessor, VisionEncoderDecoderModel
@@ -40,6 +48,7 @@ class ReceiptPerception:
 
     def __init__(self, tesseract_psm: int = 6) -> None:
         self.tesseract_psm = tesseract_psm
+        self._paddle_ocr = None
         self._trocr_processor = None
         self._trocr_model = None
         self._sroie_index: dict[str, dict[str, Any]] | None = None
@@ -128,9 +137,76 @@ class ReceiptPerception:
             },
         )
 
+    def run_paddleocr(self, image_path: str | Path) -> OCRResult:
+        """Deep-learning OCR path using PaddleOCR on the original receipt image."""
+        if PaddleOCR is None:
+            raise ImportError(
+                "PaddleOCR dependencies are not available. Install paddleocr "
+                "and the appropriate paddle runtime for your platform to use PaddleOCR."
+            )
+
+        try:
+            self._load_paddle_ocr()
+            results = self._paddle_ocr.predict(str(image_path))
+        except Exception as exc:
+            raise RuntimeError(
+                "PaddleOCR could not initialize or run. If this is the first time using it, "
+                "the model weights may still need to download on a machine with network access. "
+                f"Original error: {exc}"
+            ) from exc
+
+        lines = []
+        confidences = []
+        if results:
+            for page in results:
+                rec_texts = page["rec_texts"] if "rec_texts" in page else []
+                rec_scores = page["rec_scores"] if "rec_scores" in page else []
+                for text, confidence in zip(rec_texts, rec_scores):
+                    text = str(text).strip()
+                    if text:
+                        lines.append(text)
+                        confidences.append(float(confidence))
+
+        raw_text = "\n".join(lines)
+        cleaned_text = self._clean_text(raw_text)
+        mean_confidence = None
+        if confidences:
+            mean_confidence = round(sum(confidences) / len(confidences) * 100, 2)
+
+        return OCRResult(
+            method="paddleocr",
+            image_path=str(image_path),
+            text=cleaned_text,
+            raw_text=raw_text,
+            confidence=mean_confidence,
+            metadata={
+                "preprocessing": ["original_image", "paddle_doc_orientation", "paddle_detection", "paddle_recognition"],
+                "angle_classification": True,
+            },
+        )
+
     def run_dataset_labels(self, image_path: str | Path) -> OCRResult:
         """Reference-text path using the provided SROIE words/bboxes labels."""
         image_path = Path(image_path)
+        local_annotation_path = self._find_local_annotation_path(image_path)
+        if local_annotation_path is not None:
+            annotation = json.loads(local_annotation_path.read_text())
+            raw_text, categories = self._reconstruct_text_from_local_annotation(annotation)
+            cleaned_text = self._clean_text(raw_text)
+
+            return OCRResult(
+                method="labels",
+                image_path=str(image_path),
+                text=cleaned_text,
+                raw_text=raw_text,
+                confidence=1.0,
+                metadata={
+                    "source": "local receipt_dataset annotation json",
+                    "annotation_path": str(local_annotation_path),
+                    "categories": categories,
+                },
+            )
+
         receipt_key = image_path.stem
         row = self._get_sroie_row(receipt_key)
         raw_text = self._reconstruct_text_from_labels(row["words"], row["bboxes"])
@@ -155,9 +231,11 @@ class ReceiptPerception:
             return self.run_tesseract_ocr(image_path)
         if method == "trocr":
             return self.run_trocr(image_path)
+        if method == "paddleocr":
+            return self.run_paddleocr(image_path)
         if method == "labels":
             return self.run_dataset_labels(image_path)
-        raise ValueError("method must be 'tesseract', 'trocr', or 'labels'")
+        raise ValueError("method must be 'tesseract', 'trocr', 'paddleocr', or 'labels'")
 
     def _load_trocr_model(self) -> None:
         if self._trocr_model is not None and self._trocr_processor is not None:
@@ -167,6 +245,92 @@ class ReceiptPerception:
         self._trocr_model = VisionEncoderDecoderModel.from_pretrained(
             self.TROCR_MODEL_NAME
         )
+
+    def _load_paddle_ocr(self) -> None:
+        if self._paddle_ocr is not None:
+            return
+
+        self._paddle_ocr = PaddleOCR(
+            lang="en",
+            use_doc_orientation_classify=True,
+            use_textline_orientation=True,
+        )
+
+    def _find_local_annotation_path(self, image_path: Path) -> Path | None:
+        annotations_dir = Path(__file__).resolve().parent.parent / "data" / "receipt_dataset" / "ds0" / "ann"
+        candidate_paths = [
+            annotations_dir / f"{image_path.name}.json",
+            annotations_dir / f"{image_path.stem}.json",
+        ]
+        for candidate_path in candidate_paths:
+            if candidate_path.exists():
+                return candidate_path
+        return None
+
+    def _reconstruct_text_from_local_annotation(
+        self,
+        annotation: dict[str, Any],
+    ) -> tuple[str, list[str]]:
+        objects = annotation.get("objects", [])
+        entries = []
+        heights = []
+        categories = set()
+
+        for obj in objects:
+            tags = obj.get("tags", [])
+            transcription = None
+            category = None
+            for tag in tags:
+                if tag.get("name") == "Transcription":
+                    transcription = str(tag.get("value", "")).strip()
+                elif tag.get("name") == "Category":
+                    category = str(tag.get("value", "")).strip()
+
+            if not transcription:
+                continue
+
+            exterior = obj.get("points", {}).get("exterior", [])
+            if len(exterior) != 2:
+                continue
+
+            (x1, y1), (x2, y2) = exterior
+            height = max(float(y2) - float(y1), 1.0)
+            heights.append(height)
+            if category:
+                categories.add(category)
+            entries.append(
+                {
+                    "text": transcription,
+                    "x1": float(x1),
+                    "y_center": (float(y1) + float(y2)) / 2,
+                }
+            )
+
+        if not entries:
+            return "", sorted(categories)
+
+        line_threshold = max(8.0, median(heights) * 0.7)
+        entries.sort(key=lambda item: (item["y_center"], item["x1"]))
+
+        lines: list[list[dict[str, Any]]] = []
+        for entry in entries:
+            if not lines:
+                lines.append([entry])
+                continue
+
+            current_line = lines[-1]
+            current_y = sum(item["y_center"] for item in current_line) / len(current_line)
+            if abs(entry["y_center"] - current_y) <= line_threshold:
+                current_line.append(entry)
+            else:
+                lines.append([entry])
+
+        text_lines = []
+        for line in lines:
+            ordered = [item["text"] for item in sorted(line, key=lambda item: item["x1"])]
+            text_lines.append(" ".join(ordered))
+
+        return "\n".join(text_lines), sorted(categories)
 
     def _get_sroie_row(self, receipt_key: str) -> dict[str, Any]:
         if self._sroie_index is None:

@@ -16,10 +16,12 @@ from src.control import CreditCardRecommender
 from src.perception import ReceiptPerception
 from src.planning import CATEGORIES, ReceiptPlanner
 from src.utils import (
+    has_reference_labels,
     list_receipt_images,
     merge_spending_profiles,
     ocr_result_as_dict,
     project_root,
+    preferred_labeled_receipts_dir,
     preferred_receipts_dir,
     preview_text,
     run_receipt_pipeline,
@@ -39,9 +41,15 @@ PIPELINE_PRESETS = {
     },
     "Version 2: Deep Learning": {
         "pipeline_version": "v2",
+        "ocr_method": "paddleocr",
+        "planning_version": "v2",
+        "description": "PaddleOCR plus transformer-based planning.",
+    },
+    "Experimental: TrOCR": {
+        "pipeline_version": "v2",
         "ocr_method": "trocr",
         "planning_version": "v2",
-        "description": "Transformer OCR plus transformer-based planning.",
+        "description": "TrOCR plus transformer-based planning for side-by-side OCR comparison.",
     },
     "Labels Reference": {
         "pipeline_version": None,
@@ -488,11 +496,7 @@ def render_sidebar() -> tuple[str, bool, list[str]]:
         help="Turn this off if you want to inspect perception and planning only.",
     )
 
-    sample_dir = (
-        PROJECT_ROOT / "data" / "receipts"
-        if preset_name == "Labels Reference"
-        else preferred_receipts_dir()
-    )
+    sample_dir = preferred_labeled_receipts_dir() if preset_name == "Labels Reference" else preferred_receipts_dir()
     sample_choices = [path.name for path in list_receipt_images(sample_dir)[:12]]
     selected_samples = st.sidebar.multiselect(
         "Or load sample receipts",
@@ -577,8 +581,7 @@ def main() -> None:
             st.warning("Upload at least one receipt image or choose a sample receipt first.")
         elif preset_name == "Labels Reference" and uploaded_files:
             st.warning(
-                "The labels reference mode only works with built-in SROIE sample receipts, "
-                "because it depends on matching dataset label files."
+                "The labels reference mode only works with built-in sample receipts that already have matching label files."
             )
         else:
             try:
@@ -725,6 +728,8 @@ def main() -> None:
                 with right_col:
                     st.markdown("#### Parsed Text")
                     st.code(preview_text(result["ocr_result"].text, limit=3500), language=None)
+                    if has_reference_labels(result["ocr_result"].image_path):
+                        st.caption("Matching reference labels are available for this receipt.")
 
                 st.markdown("#### Category Totals")
                 receipt_totals = [

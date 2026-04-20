@@ -5,6 +5,7 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+import sys
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -13,6 +14,10 @@ try:
     from planning import SpendingProfile
 except ImportError:  # pragma: no cover
     from src.planning import SpendingProfile
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from tool_registry import (
     TOOL_SCHEMAS_OPENAI,

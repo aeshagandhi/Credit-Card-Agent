@@ -26,11 +26,11 @@ def parse_args() -> argparse.Namespace:
         "--pipeline-version",
         choices=["v1", "v2"],
         default=None,
-        help="Convenience preset. v1 = tesseract + planning v1. v2 = trocr + planning v2.",
+        help="Convenience preset. v1 = tesseract + planning v1. v2 = paddleocr + planning v2.",
     )
     parser.add_argument(
         "--ocr-method",
-        choices=["tesseract", "trocr", "labels"],
+        choices=["tesseract", "trocr", "paddleocr", "labels"],
         default=None,
         help="Perception method to use. Overrides the pipeline preset if provided.",
     )
@@ -54,7 +54,7 @@ def resolve_pipeline_settings(args: argparse.Namespace) -> tuple[str, str]:
         perception_method = args.ocr_method or "tesseract"
         planning_version = args.planning_version or "v1"
     elif args.pipeline_version == "v2":
-        perception_method = args.ocr_method or "trocr"
+        perception_method = args.ocr_method or "paddleocr"
         planning_version = args.planning_version or "v2"
     else:
         perception_method = args.ocr_method or "tesseract"
