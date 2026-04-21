@@ -415,6 +415,134 @@ def inject_styles() -> None:
             border-radius: 20px;
             padding: 1rem;
         }
+
+        .architecture-shell {
+            background: linear-gradient(145deg, rgba(255,255,255,0.96), rgba(241,247,252,0.94));
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 1.25rem 1.3rem;
+            box-shadow: 0 14px 34px rgba(17, 37, 63, 0.06);
+            margin-bottom: 1rem;
+        }
+
+        .architecture-kicker {
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-size: 0.73rem;
+            color: var(--accent-deep);
+            font-weight: 700;
+            margin-bottom: 0.35rem;
+        }
+
+        .architecture-copy {
+            color: var(--muted);
+            max-width: 58rem;
+            line-height: 1.55;
+            margin-bottom: 0.9rem;
+        }
+
+        .architecture-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.8rem;
+            margin-top: 0.9rem;
+        }
+
+        .architecture-phase {
+            background: rgba(255,255,255,0.9);
+            border: 1px solid rgba(17, 37, 63, 0.1);
+            border-radius: 20px;
+            padding: 1rem 1.05rem;
+        }
+
+        .architecture-phase-title {
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 1.15rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .architecture-phase-text {
+            color: var(--muted);
+            font-size: 0.92rem;
+            line-height: 1.45;
+        }
+
+        .architecture-track {
+            background: rgba(255,255,255,0.84);
+            border: 1px solid rgba(17, 37, 63, 0.1);
+            border-radius: 22px;
+            padding: 1rem 1.05rem;
+            height: 100%;
+        }
+
+        .architecture-track-title {
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 1.2rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .architecture-track-subtitle {
+            color: var(--muted);
+            font-size: 0.92rem;
+            line-height: 1.45;
+            margin-bottom: 0.8rem;
+        }
+
+        .architecture-step {
+            background: rgba(17, 37, 63, 0.04);
+            border: 1px solid rgba(17, 37, 63, 0.08);
+            border-radius: 16px;
+            padding: 0.8rem 0.9rem;
+            margin-bottom: 0.7rem;
+        }
+
+        .architecture-step-label {
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-size: 0.7rem;
+            color: var(--muted);
+            font-weight: 700;
+            margin-bottom: 0.2rem;
+        }
+
+        .architecture-step-title {
+            font-weight: 700;
+            margin-bottom: 0.2rem;
+        }
+
+        .architecture-step-copy {
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .architecture-shared {
+            background: linear-gradient(135deg, rgba(29,93,140,0.1), rgba(15,122,108,0.1));
+            border: 1px solid rgba(17, 37, 63, 0.1);
+            border-radius: 22px;
+            padding: 1rem 1.05rem;
+            margin-top: 1rem;
+        }
+
+        .architecture-pills {
+            margin-top: 0.7rem;
+        }
+
+        .architecture-pill {
+            display: inline-block;
+            margin: 0 0.45rem 0.35rem 0;
+            padding: 0.28rem 0.68rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.72);
+            border: 1px solid rgba(17, 37, 63, 0.1);
+            font-size: 0.82rem;
+        }
+
+        @media (max-width: 900px) {
+            .architecture-grid {
+                grid-template-columns: 1fr;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -485,6 +613,157 @@ def render_workflow_card(title: str, description: str, ocr_method: str, planning
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_architecture_tab(active_preset_name: str, active_preset: dict[str, Any]) -> None:
+    st.markdown(
+        """
+        <div class="architecture-shell">
+            <div class="architecture-kicker">Architecture Overview</div>
+            <h3>Perception, Planning, and Control</h3>
+            <div class="architecture-copy">
+                The system is built as a three-stage agent pipeline. Perception converts receipt images into text,
+                planning turns that text into structured spending behavior, and control recommends a credit card using
+                an LLM with live web research. The two required agent versions differ in perception and planning, while
+                sharing the same control phase for a fair comparison.
+            </div>
+            <div class="architecture-grid">
+                <div class="architecture-phase">
+                    <div class="architecture-phase-title">Perception</div>
+                    <div class="architecture-phase-text">Image-based OCR extracts readable receipt text from uploaded receipt photos.</div>
+                </div>
+                <div class="architecture-phase">
+                    <div class="architecture-phase-title">Planning</div>
+                    <div class="architecture-phase-text">Receipt text is transformed into merchant, line items, category totals, and a spending profile.</div>
+                </div>
+                <div class="architecture-phase">
+                    <div class="architecture-phase-title">Control</div>
+                    <div class="architecture-phase-text">An LLM plus web tools evaluates current cards and recommends the best fit for the parsed spend profile.</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    current_col, compare_col = st.columns([1.05, 1.25], gap="large")
+
+    with current_col:
+        render_workflow_card(
+            title=f"Active Workflow: {active_preset_name}",
+            description=active_preset["description"],
+            ocr_method=active_preset["ocr_method"],
+            planning_version=active_preset["planning_version"],
+        )
+
+        st.markdown(
+            """
+            <div class="architecture-track">
+                <div class="architecture-track-title">Evaluation Support</div>
+                <div class="architecture-track-subtitle">
+                    Structured Reference Text uses the dataset annotation JSON to reconstruct receipt text.
+                    It is helpful for showing whether downstream errors come from OCR quality or from later planning logic.
+                </div>
+                <div class="architecture-step">
+                    <div class="architecture-step-label">Reference Input</div>
+                    <div class="architecture-step-title">Structured Reference Text</div>
+                    <div class="architecture-step-copy">
+                        This mode is useful in demos and evaluation because it approximates a cleaner upper bound for
+                        the rest of the pipeline.
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with compare_col:
+        comparison_markup = f"""
+        <div class="architecture-track">
+            <div class="architecture-track-title">Two Required Agent Versions</div>
+            <div class="architecture-track-subtitle">
+                Both agents perform the same task, but they differ in how they handle perception and planning.
+            </div>
+            <div class="architecture-step">
+                <div class="architecture-step-label">Version 1</div>
+                <div class="architecture-step-title">Non-DL Agent</div>
+                <div class="architecture-step-copy">
+                    <strong>Perception:</strong> Tesseract OCR with classical image preprocessing such as grayscale conversion,
+                    thresholding, and deskewing.<br>
+                    <strong>Planning:</strong> Classical parsing and non-DL categorization logic that converts OCR text into spending totals.
+                </div>
+            </div>
+            <div class="architecture-step">
+                <div class="architecture-step-label">Version 2</div>
+                <div class="architecture-step-title">DL Agent</div>
+                <div class="architecture-step-copy">
+                    <strong>Perception:</strong> PaddleOCR for stronger receipt text extraction.<br>
+                    <strong>Planning:</strong> Deep planning with transformer-based semantic classification and more flexible receipt understanding.
+                </div>
+            </div>
+            <div class="architecture-shared">
+                <div class="architecture-step-label">Shared Control Phase</div>
+                <div class="architecture-step-title">LLM Recommendation Agent</div>
+                <div class="architecture-step-copy">
+                    Both versions use the same control phase: an OpenAI model with web search and webpage tools. This
+                    keeps the comparison fair and makes it easier to see how perception and planning quality affect the
+                    final recommendation.
+                </div>
+                <div class="architecture-pills">
+                    <span class="architecture-pill">Live card research</span>
+                    <span class="architecture-pill">LLM reasoning</span>
+                    <span class="architecture-pill">Structured JSON output</span>
+                    <span class="architecture-pill">Shared across both agents</span>
+                </div>
+            </div>
+        </div>
+        """
+        st.markdown(comparison_markup, unsafe_allow_html=True)
+
+    st.markdown("### Why This Design")
+    reason_cols = st.columns(3, gap="large")
+    with reason_cols[0]:
+        st.markdown(
+            """
+            <div class="architecture-step">
+                <div class="architecture-step-label">Design Choice</div>
+                <div class="architecture-step-title">Image-Based Input</div>
+                <div class="architecture-step-copy">
+                    The project starts from receipt images rather than text so the perception phase is genuinely visual
+                    and satisfies the course requirement.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with reason_cols[1]:
+        st.markdown(
+            """
+            <div class="architecture-step">
+                <div class="architecture-step-label">Design Choice</div>
+                <div class="architecture-step-title">Two Comparable Agents</div>
+                <div class="architecture-step-copy">
+                    The non-DL and DL versions share the same task and control phase, making it easier to compare them
+                    in evaluation and explain the effect of the upstream modeling choices.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with reason_cols[2]:
+        st.markdown(
+            """
+            <div class="architecture-step">
+                <div class="architecture-step-label">Design Choice</div>
+                <div class="architecture-step-title">Stable Interface</div>
+                <div class="architecture-step-copy">
+                    Every perception method outputs receipt text, and every planning method outputs the same spending
+                    profile structure. That stability keeps the rest of the pipeline reusable.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def build_input_assets(
@@ -830,208 +1109,220 @@ def main() -> None:
                 st.error(f"The analysis could not be completed: {exc}")
 
     analysis = st.session_state.get("analysis")
-    if not analysis:
-        st.info("Run an analysis to unlock the recommendation dashboard.")
-        return
+    if analysis:
+        aggregate_profile = analysis["aggregate_profile"]
+        aggregate_recommendation = analysis["aggregate_recommendation"]
+        control_status = analysis.get("control_status", "unknown")
+        control_message = analysis.get("control_message")
+        top_category, top_amount = pick_top_category(aggregate_profile.category_totals)
 
-    aggregate_profile = analysis["aggregate_profile"]
-    aggregate_recommendation = analysis["aggregate_recommendation"]
-    control_status = analysis.get("control_status", "unknown")
-    control_message = analysis.get("control_message")
-    top_category, top_amount = pick_top_category(aggregate_profile.category_totals)
+        metric_columns = st.columns(4)
+        with metric_columns[0]:
+            render_metric_card(
+                "Receipts analyzed",
+                str(len(analysis["receipt_results"])),
+                "Receipts successfully included in the final profile.",
+            )
+        with metric_columns[1]:
+            render_metric_card(
+                "Detected spend",
+                format_currency(aggregate_profile.total_amount),
+                "Combined spend total parsed from all receipt line items.",
+            )
+        with metric_columns[2]:
+            render_metric_card(
+                "Top spend category",
+                top_category.title(),
+                f"{format_currency(top_amount)} in the largest parsed category.",
+            )
+        with metric_columns[3]:
+            render_metric_card(
+                "Workflow",
+                preset_name,
+                f"{display_ocr_method(preset['ocr_method'])} with {display_planning_version(preset['planning_version'])}.",
+            )
 
-    metric_columns = st.columns(4)
-    with metric_columns[0]:
-        render_metric_card(
-            "Receipts analyzed",
-            str(len(analysis["receipt_results"])),
-            "Receipts successfully included in the final profile.",
-        )
-    with metric_columns[1]:
-        render_metric_card(
-            "Detected spend",
-            format_currency(aggregate_profile.total_amount),
-            "Combined spend total parsed from all receipt line items.",
-        )
-    with metric_columns[2]:
-        render_metric_card(
-            "Top spend category",
-            top_category.title(),
-            f"{format_currency(top_amount)} in the largest parsed category.",
-        )
-    with metric_columns[3]:
-        render_metric_card(
-            "Workflow",
-            preset_name,
-            f"{display_ocr_method(preset['ocr_method'])} with {display_planning_version(preset['planning_version'])}.",
-        )
-
-    dashboard_tabs = st.tabs(["Recommendation", "Receipt Review", "Assistant"])
+    dashboard_tabs = st.tabs(["Architecture", "Recommendation", "Receipt Review", "Assistant"])
 
     with dashboard_tabs[0]:
-        chart_col, rec_col = st.columns([1.05, 1.25], gap="large")
-
-        with chart_col:
-            st.markdown("### Spending Snapshot")
-            st.bar_chart(category_chart_frame(aggregate_profile), height=360)
-            st.markdown("### Category Totals")
-            category_rows = [
-                {"category": category.title(), "amount": amount}
-                for category, amount in aggregate_profile.category_totals.items()
-                if amount > 0
-            ]
-            if category_rows:
-                st.dataframe(pd.DataFrame(category_rows), use_container_width=True, hide_index=True)
-            else:
-                st.info("No spend categories were extracted from this run.")
-
-        with rec_col:
-            st.markdown("### Final Recommendation")
-            if control_status == "failed":
-                st.warning(
-                    "Live card research did not finish in time for this run. "
-                    "Your OCR and spend-classification results are still available below."
-                )
-                if control_message:
-                    st.caption(control_message)
-            if aggregate_recommendation is None:
-                if control_status == "failed":
-                    st.info(
-                        "A final card recommendation could not be completed this time, "
-                        "but the parsed receipt analysis is still shown."
-                    )
-                else:
-                    st.info("Card recommendation was turned off for this run.")
-            else:
-                primary_col, runner_col = st.columns(2)
-                with primary_col:
-                    render_recommendation_card(
-                        aggregate_recommendation.primary_card,
-                        aggregate_recommendation.primary_issuer,
-                        aggregate_recommendation.primary_estimated_value,
-                        "Primary recommendation",
-                    )
-                with runner_col:
-                    render_recommendation_card(
-                        aggregate_recommendation.runner_up_card,
-                        aggregate_recommendation.runner_up_issuer,
-                        aggregate_recommendation.runner_up_estimated_value,
-                        "Runner-up",
-                    )
-
-                st.markdown("#### Why this recommendation")
-                st.write(aggregate_recommendation.explanation)
-
-                if aggregate_recommendation.caveats:
-                    st.markdown("#### Caveats")
-                    for caveat in aggregate_recommendation.caveats:
-                        st.write(f"- {caveat}")
-
-                if aggregate_recommendation.card_rankings:
-                    st.markdown("#### Ranked Card Options")
-                    st.dataframe(
-                        pd.DataFrame(aggregate_recommendation.card_rankings),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-                if aggregate_recommendation.sources:
-                    st.markdown("#### Research Sources")
-                    st.markdown(
-                        sources_markup(aggregate_recommendation.sources),
-                        unsafe_allow_html=True,
-                    )
-                    for source in aggregate_recommendation.sources:
-                        with st.expander(source["title"]):
-                            st.write(source["why_it_matters"])
-                            st.markdown(f"[Open source]({source['url']})")
-
-        if analysis["errors"]:
-            st.warning("Some receipts could not be processed.")
-            st.dataframe(pd.DataFrame(analysis["errors"]), use_container_width=True, hide_index=True)
+        render_architecture_tab(active_preset_name=preset_name, active_preset=preset)
 
     with dashboard_tabs[1]:
-        st.markdown("### Receipt-by-Receipt Review")
-        for index, result in enumerate(analysis["receipt_results"]):
-            title = (
-                f"{result['display_name']} — "
-                f"{result['spending_profile'].merchant or 'Unknown merchant'}"
-            )
-            with st.expander(title, expanded=index == 0):
-                left_col, right_col = st.columns([0.9, 1.1], gap="large")
-                with left_col:
-                    st.image(result["image_bytes"], use_container_width=True)
-                    st.caption(
-                        f"OCR: {display_ocr_method(result['pipeline']['perception_method'])} | "
-                        f"Planning: {display_planning_version(result['pipeline']['planning_version'])}"
-                    )
+        if not analysis:
+            st.info("Run an analysis to view recommendation results for the selected workflow.")
+        else:
+            chart_col, rec_col = st.columns([1.05, 1.25], gap="large")
 
-                with right_col:
-                    st.markdown("#### Parsed Receipt Text")
-                    st.code(preview_text(result["ocr_result"].text, limit=3500), language=None)
-                    if has_reference_labels(result["ocr_result"].image_path):
-                        st.caption("Matching structured annotations are available for this receipt.")
-
-                st.markdown("#### Category Totals")
-                receipt_totals = [
+            with chart_col:
+                st.markdown("### Spending Snapshot")
+                st.bar_chart(category_chart_frame(aggregate_profile), height=360)
+                st.markdown("### Category Totals")
+                category_rows = [
                     {"category": category.title(), "amount": amount}
-                    for category, amount in result["spending_profile"].category_totals.items()
+                    for category, amount in aggregate_profile.category_totals.items()
                     if amount > 0
                 ]
-                if receipt_totals:
-                    st.dataframe(pd.DataFrame(receipt_totals), use_container_width=True, hide_index=True)
+                if category_rows:
+                    st.dataframe(pd.DataFrame(category_rows), use_container_width=True, hide_index=True)
                 else:
-                    st.info("No spend categories were extracted for this receipt.")
+                    st.info("No spend categories were extracted from this run.")
 
-                st.markdown("#### Parsed Line Items")
-                items_df = line_items_frame(result["spending_profile"].line_items)
-                if items_df.empty:
-                    st.info("No line items were parsed from this receipt.")
-                else:
-                    st.dataframe(items_df, use_container_width=True, hide_index=True)
-
-                with st.expander("Technical output"):
-                    st.json(
-                        {
-                            "pipeline": result["pipeline"],
-                            "ocr": ocr_result_as_dict(result["ocr_result"]),
-                            "planning": result["spending_profile"].as_dict(),
-                        }
+            with rec_col:
+                st.markdown("### Final Recommendation")
+                if control_status == "failed":
+                    st.warning(
+                        "Live card research did not finish in time for this run. "
+                        "Your OCR and spend-classification results are still available below."
                     )
+                    if control_message:
+                        st.caption(control_message)
+                if aggregate_recommendation is None:
+                    if control_status == "failed":
+                        st.info(
+                            "A final card recommendation could not be completed this time, "
+                            "but the parsed receipt analysis is still shown."
+                        )
+                    else:
+                        st.info("Card recommendation was turned off for this run.")
+                else:
+                    primary_col, runner_col = st.columns(2)
+                    with primary_col:
+                        render_recommendation_card(
+                            aggregate_recommendation.primary_card,
+                            aggregate_recommendation.primary_issuer,
+                            aggregate_recommendation.primary_estimated_value,
+                            "Primary recommendation",
+                        )
+                    with runner_col:
+                        render_recommendation_card(
+                            aggregate_recommendation.runner_up_card,
+                            aggregate_recommendation.runner_up_issuer,
+                            aggregate_recommendation.runner_up_estimated_value,
+                            "Runner-up",
+                        )
+
+                    st.markdown("#### Why this recommendation")
+                    st.write(aggregate_recommendation.explanation)
+
+                    if aggregate_recommendation.caveats:
+                        st.markdown("#### Caveats")
+                        for caveat in aggregate_recommendation.caveats:
+                            st.write(f"- {caveat}")
+
+                    if aggregate_recommendation.card_rankings:
+                        st.markdown("#### Ranked Card Options")
+                        st.dataframe(
+                            pd.DataFrame(aggregate_recommendation.card_rankings),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                    if aggregate_recommendation.sources:
+                        st.markdown("#### Research Sources")
+                        st.markdown(
+                            sources_markup(aggregate_recommendation.sources),
+                            unsafe_allow_html=True,
+                        )
+                        for source in aggregate_recommendation.sources:
+                            with st.expander(source["title"]):
+                                st.write(source["why_it_matters"])
+                                st.markdown(f"[Open source]({source['url']})")
+
+            if analysis["errors"]:
+                st.warning("Some receipts could not be processed.")
+                st.dataframe(pd.DataFrame(analysis["errors"]), use_container_width=True, hide_index=True)
 
     with dashboard_tabs[2]:
-        st.markdown("### Ask About This Analysis")
-        st.caption(
-            "This assistant is grounded in the current run. It can explain the spend profile, "
-            "recommendation logic, and visible OCR limitations."
-        )
+        if not analysis:
+            st.info("Run an analysis to inspect receipt text, parsed items, and category totals.")
+        else:
+            st.markdown("### Receipt-by-Receipt Review")
+            for index, result in enumerate(analysis["receipt_results"]):
+                title = (
+                    f"{result['display_name']} — "
+                    f"{result['spending_profile'].merchant or 'Unknown merchant'}"
+                )
+                with st.expander(title, expanded=index == 0):
+                    left_col, right_col = st.columns([0.9, 1.1], gap="large")
+                    with left_col:
+                        st.image(result["image_bytes"], use_container_width=True)
+                        st.caption(
+                            f"OCR: {display_ocr_method(result['pipeline']['perception_method'])} | "
+                            f"Planning: {display_planning_version(result['pipeline']['planning_version'])}"
+                        )
 
-        if "chat_messages" not in st.session_state:
-            st.session_state["chat_messages"] = [
-                {
-                    "role": "assistant",
-                    "content": "Run an analysis first, then ask follow-up questions here.",
-                }
-            ]
+                    with right_col:
+                        st.markdown("#### Parsed Receipt Text")
+                        st.code(preview_text(result["ocr_result"].text, limit=3500), language=None)
+                        if has_reference_labels(result["ocr_result"].image_path):
+                            st.caption("Matching structured annotations are available for this receipt.")
 
-        for message in st.session_state["chat_messages"]:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+                    st.markdown("#### Category Totals")
+                    receipt_totals = [
+                        {"category": category.title(), "amount": amount}
+                        for category, amount in result["spending_profile"].category_totals.items()
+                        if amount > 0
+                    ]
+                    if receipt_totals:
+                        st.dataframe(pd.DataFrame(receipt_totals), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No spend categories were extracted for this receipt.")
 
-        prompt = st.chat_input("Ask about the recommendation, spend profile, or OCR quality")
-        if prompt:
-            st.session_state["chat_messages"].append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
+                    st.markdown("#### Parsed Line Items")
+                    items_df = line_items_frame(result["spending_profile"].line_items)
+                    if items_df.empty:
+                        st.info("No line items were parsed from this receipt.")
+                    else:
+                        st.dataframe(items_df, use_container_width=True, hide_index=True)
 
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    try:
-                        answer = answer_pipeline_question(prompt, analysis)
-                    except Exception as exc:
-                        answer = f"The assistant could not answer this question: {exc}"
-                    st.markdown(answer)
-            st.session_state["chat_messages"].append({"role": "assistant", "content": answer})
+                    with st.expander("Technical output"):
+                        st.json(
+                            {
+                                "pipeline": result["pipeline"],
+                                "ocr": ocr_result_as_dict(result["ocr_result"]),
+                                "planning": result["spending_profile"].as_dict(),
+                            }
+                        )
+
+    with dashboard_tabs[3]:
+        if not analysis:
+            st.markdown("### Ask About This Analysis")
+            st.caption(
+                "Run an analysis first, then use this assistant to ask follow-up questions about OCR quality, spend categories, or the recommendation."
+            )
+        else:
+            st.markdown("### Ask About This Analysis")
+            st.caption(
+                "This assistant is grounded in the current run. It can explain the spend profile, "
+                "recommendation logic, and visible OCR limitations."
+            )
+
+            if "chat_messages" not in st.session_state:
+                st.session_state["chat_messages"] = [
+                    {
+                        "role": "assistant",
+                        "content": "Run an analysis first, then ask follow-up questions here.",
+                    }
+                ]
+
+            for message in st.session_state["chat_messages"]:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+
+            prompt = st.chat_input("Ask about the recommendation, spend profile, or OCR quality")
+            if prompt:
+                st.session_state["chat_messages"].append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        try:
+                            answer = answer_pipeline_question(prompt, analysis)
+                        except Exception as exc:
+                            answer = f"The assistant could not answer this question: {exc}"
+                        st.markdown(answer)
+                st.session_state["chat_messages"].append({"role": "assistant", "content": answer})
 
 
 if __name__ == "__main__":
