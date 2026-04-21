@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
+import os
 from pathlib import Path
 import re
 from typing import Any
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency at runtime
+    load_dotenv = None
+
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - optional dependency at runtime
+    OpenAI = None
 
 try:
     from transformers import pipeline
@@ -146,9 +158,12 @@ SUMMARY_LINE_KEYWORDS = [
     "subtotal",
     "sub total",
     "total",
+    "total due",
     "tax",
+    "vat",
     "balance",
     "change",
+    "change due",
     "cash",
     "visa",
     "mastercard",
@@ -156,7 +171,15 @@ SUMMARY_LINE_KEYWORDS = [
     "credit",
     "amount due",
     "tender",
+    "tendered",
     "payment",
+    "tip",
+    "gratuity",
+    "service charge",
+    "discount",
+    "rounding",
+    "fee",
+    "fees",
 ]
 
 
@@ -205,6 +228,7 @@ class ReceiptPlanner:
     """Planning module with Version 1 classical logic and Version 2 DL classification."""
 
     DEFAULT_V2_MODEL = "typeform/distilbert-base-uncased-mnli"
+    DEFAULT_RECEIPT_PARSER_MODEL = "gpt-4o-mini"
 
     def __init__(
         self,
@@ -213,12 +237,24 @@ class ReceiptPlanner:
         default_version: str = "v1",
         v2_model_name_or_path: str | None = None,
         v2_score_threshold: float = 0.35,
+        llm_receipt_parser_enabled: bool = True,
+        llm_receipt_parser_model: str | None = None,
     ) -> None:
+        if load_dotenv is not None:
+            load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
         self.merchant_lookup = merchant_lookup or DEFAULT_MERCHANT_LOOKUP
         self.category_keywords = category_keywords or CATEGORY_KEYWORDS
         self.default_version = default_version
         self.v2_model_name_or_path = v2_model_name_or_path or self._default_v2_model()
         self.v2_score_threshold = v2_score_threshold
+        self.llm_receipt_parser_enabled = llm_receipt_parser_enabled
+        self.llm_receipt_parser_model = (
+            llm_receipt_parser_model
+            or os.getenv("OPENAI_RECEIPT_PARSER_MODEL")
+            or os.getenv("OPENAI_MODEL")
+            or self.DEFAULT_RECEIPT_PARSER_MODEL
+        )
+        self._llm_receipt_parser_client = None
         self._v2_classifier = None
 
     def build_spending_profile(
@@ -281,8 +317,12 @@ class ReceiptPlanner:
     def build_spending_profile_v2(self, receipt_text: str) -> SpendingProfile:
         lines = self._normalize_lines(receipt_text)
         merchant = self._detect_merchant(lines)
+        merchant, candidates, parser_metadata = self._candidate_lines_v2(
+            receipt_text=receipt_text,
+            lines=lines,
+            merchant=merchant,
+        )
         default_category = self._semantic_default_category(merchant)
-        candidates = self._candidate_lines(lines)
 
         category_totals = {category: 0.0 for category in CATEGORIES}
         line_items: list[LineItem] = []
@@ -299,6 +339,7 @@ class ReceiptPlanner:
                     "classification_method": "transformer_semantic_classifier",
                     "model_name_or_path": self.v2_model_name_or_path,
                     "score_threshold": self.v2_score_threshold,
+                    **parser_metadata,
                 },
             )
 
@@ -334,28 +375,210 @@ class ReceiptPlanner:
                 "model_name_or_path": self.v2_model_name_or_path,
                 "score_threshold": self.v2_score_threshold,
                 "merchant_default_category": default_category,
+                **parser_metadata,
             },
         )
 
     def _candidate_lines(self, lines: list[str]) -> list[dict[str, Any]]:
         candidates: list[dict[str, Any]] = []
-        for line in lines:
+        for index, line in enumerate(lines):
             amount = self._extract_amount(line)
             if amount is None:
                 continue
 
             description = self._strip_price_from_line(line)
-            if self._is_summary_line(description):
+            if description:
+                if self._is_summary_line(description):
+                    continue
+
+                candidates.append(
+                    {
+                        "original_line": line,
+                        "description": description,
+                        "amount": amount,
+                    }
+                )
+                continue
+
+            paired_description = self._pair_amount_only_line(lines, index)
+            if paired_description is None:
                 continue
 
             candidates.append(
                 {
-                    "original_line": line,
-                    "description": description,
+                    "original_line": f"{paired_description} | {line}",
+                    "description": paired_description,
                     "amount": amount,
                 }
             )
         return candidates
+
+    def _candidate_lines_v2(
+        self,
+        receipt_text: str,
+        lines: list[str],
+        merchant: str | None,
+    ) -> tuple[str | None, list[dict[str, Any]], dict[str, Any]]:
+        parsed_receipt = self._parse_receipt_structure_with_llm(receipt_text, merchant)
+        if parsed_receipt is not None and parsed_receipt["items"]:
+            resolved_merchant = parsed_receipt["merchant"] or merchant
+            return (
+                resolved_merchant,
+                parsed_receipt["items"],
+                {
+                    "receipt_parser": "llm_structured_parser",
+                    "receipt_parser_model": self.llm_receipt_parser_model,
+                    "parsed_item_count": len(parsed_receipt["items"]),
+                    "parsed_summary_lines": parsed_receipt["summary_lines"][:8],
+                    "ignored_line_count": len(parsed_receipt["ignored_lines"]),
+                },
+            )
+
+        heuristic_candidates = self._candidate_lines(lines)
+        return (
+            merchant,
+            heuristic_candidates,
+            {
+                "receipt_parser": "heuristic_regex_parser",
+                "parsed_item_count": len(heuristic_candidates),
+                "parsed_summary_lines": [],
+                "ignored_line_count": 0,
+            },
+        )
+
+    def _parse_receipt_structure_with_llm(
+        self,
+        receipt_text: str,
+        merchant: str | None,
+    ) -> dict[str, Any] | None:
+        client = self._load_llm_receipt_parser_client()
+        if client is None:
+            return None
+
+        trimmed_text = receipt_text.strip()[:12000]
+        if not trimmed_text:
+            return None
+
+        try:
+            response = client.chat.completions.create(
+                model=self.llm_receipt_parser_model,
+                temperature=0.0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a receipt understanding parser. "
+                            "Your job is to separate actual purchased items from summary lines such as subtotal, tax, tip, total, payment, and change. "
+                            "OCR text may be noisy or split across lines. "
+                            "Return JSON only with these keys exactly: merchant, purchase_items, summary_lines, ignored_lines. "
+                            "purchase_items must include only true purchased items or services that should count toward spend. "
+                            "summary_lines must include totals, subtotals, taxes, fees, discounts, tips, payment lines, and change lines. "
+                            "If a line is clearly metadata such as date, time, cashier, table, receipt number, or phone number, put it in ignored_lines. "
+                            "Amounts must be numbers, not strings."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "detected_merchant_hint": merchant,
+                                "ocr_text": trimmed_text,
+                                "output_schema": {
+                                    "merchant": "string or null",
+                                    "purchase_items": [
+                                        {
+                                            "description": "string",
+                                            "amount": "number",
+                                            "source_line": "string",
+                                        }
+                                    ],
+                                    "summary_lines": [
+                                        {
+                                            "description": "string",
+                                            "amount": "number or null",
+                                            "line_type": "subtotal|tax|tip|discount|total|payment|change|other_summary",
+                                            "source_line": "string",
+                                        }
+                                    ],
+                                    "ignored_lines": ["string"],
+                                },
+                            },
+                            indent=2,
+                        ),
+                    },
+                ],
+            )
+        except Exception:
+            return None
+
+        content = response.choices[0].message.content or "{}"
+        try:
+            payload = json.loads(content)
+        except json.JSONDecodeError:
+            return None
+
+        return self._normalize_structured_receipt_payload(payload)
+
+    def _normalize_structured_receipt_payload(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        merchant = str(payload.get("merchant", "")).strip() or None
+
+        purchase_items = payload.get("purchase_items", [])
+        if not isinstance(purchase_items, list):
+            purchase_items = []
+
+        summary_lines = payload.get("summary_lines", [])
+        if not isinstance(summary_lines, list):
+            summary_lines = []
+
+        ignored_lines = payload.get("ignored_lines", [])
+        if not isinstance(ignored_lines, list):
+            ignored_lines = []
+
+        normalized_items: list[dict[str, Any]] = []
+        for item in purchase_items:
+            if not isinstance(item, dict):
+                continue
+
+            description = str(item.get("description", "")).strip()
+            amount = self._coerce_amount(item.get("amount"))
+            source_line = str(item.get("source_line", description)).strip() or description
+
+            if not description or amount is None or amount <= 0:
+                continue
+            if self._is_summary_line(description):
+                continue
+
+            normalized_items.append(
+                {
+                    "original_line": source_line,
+                    "description": description,
+                    "amount": amount,
+                }
+            )
+
+        normalized_summary_lines: list[dict[str, Any]] = []
+        for line in summary_lines:
+            if not isinstance(line, dict):
+                continue
+            normalized_summary_lines.append(
+                {
+                    "description": str(line.get("description", "")).strip(),
+                    "amount": self._coerce_amount(line.get("amount")),
+                    "line_type": str(line.get("line_type", "other_summary")).strip() or "other_summary",
+                    "source_line": str(line.get("source_line", "")).strip(),
+                }
+            )
+
+        return {
+            "merchant": merchant,
+            "items": normalized_items,
+            "summary_lines": normalized_summary_lines,
+            "ignored_lines": [str(line).strip() for line in ignored_lines if str(line).strip()],
+        }
 
     def _classify_candidate_lines_v2(
         self,
@@ -445,6 +668,20 @@ class ReceiptPlanner:
             model=self.v2_model_name_or_path,
         )
         return self._v2_classifier
+
+    def _load_llm_receipt_parser_client(self):
+        if not self.llm_receipt_parser_enabled or OpenAI is None:
+            return None
+
+        if self._llm_receipt_parser_client is not None:
+            return self._llm_receipt_parser_client
+
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return None
+
+        self._llm_receipt_parser_client = OpenAI(api_key=api_key)
+        return self._llm_receipt_parser_client
 
     def _default_v2_model(self) -> str:
         local_model_dir = Path(__file__).resolve().parent.parent / "models" / "planning_v2"
@@ -548,6 +785,26 @@ class ReceiptPlanner:
         except ValueError:
             return None
 
+    def _coerce_amount(self, value: Any) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return round(float(value), 2)
+
+        cleaned = str(value).strip()
+        if not cleaned:
+            return None
+
+        cleaned = cleaned.replace("$", "").replace(",", "")
+        cleaned = re.sub(r"[^\d.\-]", "", cleaned)
+        if cleaned.count(".") > 1:
+            return None
+
+        try:
+            return round(float(cleaned), 2)
+        except ValueError:
+            return None
+
     def _strip_price_from_line(self, line: str) -> str:
         cleaned = PRICE_PATTERN.sub("", line)
         cleaned = re.sub(r"\s{2,}", " ", cleaned)
@@ -556,3 +813,36 @@ class ReceiptPlanner:
     def _is_summary_line(self, description: str) -> bool:
         normalized = description.lower()
         return any(keyword in normalized for keyword in SUMMARY_LINE_KEYWORDS)
+
+    def _pair_amount_only_line(self, lines: list[str], index: int) -> str | None:
+        current_line = lines[index]
+        if not self._is_amount_only_line(current_line):
+            return None
+
+        search_start = max(0, index - 2)
+        for candidate_index in range(index - 1, search_start - 1, -1):
+            candidate_line = lines[candidate_index].strip()
+            if not candidate_line:
+                continue
+            if self._extract_amount(candidate_line) is not None:
+                continue
+            if self._is_summary_line(candidate_line):
+                return None
+            if self._looks_like_item_description(candidate_line):
+                return candidate_line
+        return None
+
+    def _is_amount_only_line(self, line: str) -> bool:
+        normalized = PRICE_PATTERN.sub("", line)
+        normalized = re.sub(r"[\s:$\-]", "", normalized)
+        return bool(normalized == "")
+
+    def _looks_like_item_description(self, text: str) -> bool:
+        normalized = text.strip().lower()
+        if not normalized:
+            return False
+        if self._is_summary_line(normalized):
+            return False
+        if re.search(r"\b(date|time|receipt|check|order|invoice|table|server|cashier|phone|tel)\b", normalized):
+            return False
+        return bool(re.search(r"[a-zA-Z]", normalized))

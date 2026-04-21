@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
+from functools import lru_cache
 
 try:
     from control import CreditCardRecommender
@@ -70,6 +72,23 @@ def preferred_labeled_receipts_dir() -> Path:
     return candidate_dirs[0]
 
 
+def labeled_receipt_dirs() -> list[Path]:
+    root = project_root()
+    return [
+        root / "data" / "receipt_dataset" / "ds0" / "img",
+        root / "data" / "receipts",
+    ]
+
+
+def labeled_receipt_images() -> list[Path]:
+    paths: list[Path] = []
+    for candidate_dir in labeled_receipt_dirs():
+        if candidate_dir.exists():
+            paths.extend(list_receipt_images(candidate_dir))
+    deduplicated: dict[str, Path] = {str(path.resolve()): path for path in paths}
+    return list(deduplicated.values())
+
+
 def has_reference_labels(image_path: str | Path) -> bool:
     image_path = Path(image_path)
     root = project_root()
@@ -92,6 +111,45 @@ def has_reference_labels(image_path: str | Path) -> bool:
         return False
 
     return image_path.stem in index
+
+
+@lru_cache(maxsize=1)
+def _labeled_receipt_hash_index() -> dict[str, str]:
+    index: dict[str, str] = {}
+    for image_path in labeled_receipt_images():
+        try:
+            digest = hashlib.sha256(image_path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        index[digest] = str(image_path)
+    return index
+
+
+def resolve_reference_labeled_image(
+    image_path: str | Path | None = None,
+    file_name: str | None = None,
+    file_bytes: bytes | None = None,
+) -> Path | None:
+    if image_path is not None:
+        candidate = Path(image_path)
+        if candidate.exists() and has_reference_labels(candidate):
+            return candidate
+
+    if file_bytes:
+        digest = hashlib.sha256(file_bytes).hexdigest()
+        indexed_path = _labeled_receipt_hash_index().get(digest)
+        if indexed_path is not None:
+            candidate = Path(indexed_path)
+            if candidate.exists() and has_reference_labels(candidate):
+                return candidate
+
+    if file_name:
+        for candidate_dir in labeled_receipt_dirs():
+            exact_match = candidate_dir / Path(file_name).name
+            if exact_match.exists() and has_reference_labels(exact_match):
+                return exact_match
+
+    return None
 
 
 def run_receipt_pipeline(

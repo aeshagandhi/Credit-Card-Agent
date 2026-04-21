@@ -24,6 +24,7 @@ from src.utils import (
     preferred_labeled_receipts_dir,
     preferred_receipts_dir,
     preview_text,
+    resolve_reference_labeled_image,
     run_receipt_pipeline,
     save_uploaded_bytes,
 )
@@ -462,6 +463,7 @@ def analyze_receipts(
 
             image_path: Path
             image_payload: bytes | None = None
+            pipeline_image_path: Path
             if asset["kind"] == "upload":
                 image_payload = asset["bytes"]
                 image_path = save_uploaded_bytes(asset["name"], image_payload)
@@ -471,8 +473,22 @@ def analyze_receipts(
                 image_payload = image_path.read_bytes()
 
             try:
+                pipeline_image_path = image_path
+                if preset["ocr_method"] == "labels":
+                    reference_image_path = resolve_reference_labeled_image(
+                        image_path=image_path if asset["kind"] == "sample" else None,
+                        file_name=asset["name"],
+                        file_bytes=image_payload,
+                    )
+                    if reference_image_path is None:
+                        raise FileNotFoundError(
+                            "No matching labeled reference receipt was found in the local dataset "
+                            f"for uploaded file '{asset['name']}'."
+                        )
+                    pipeline_image_path = reference_image_path
+
                 result = run_receipt_pipeline(
-                    image_path=image_path,
+                    image_path=pipeline_image_path,
                     perception=perception,
                     planner=planner,
                     pipeline_version=preset["pipeline_version"],
@@ -706,10 +722,6 @@ def main() -> None:
     if analyze_clicked:
         if not assets:
             st.warning("Upload at least one receipt image or choose a sample receipt first.")
-        elif preset_name == "Labels Reference" and uploaded_files:
-            st.warning(
-                "The labels reference mode only works with built-in sample receipts that already have matching label files."
-            )
         else:
             try:
                 with st.spinner("Running the pipeline..."):
