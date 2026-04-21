@@ -151,6 +151,54 @@ def run_receipt_pipeline(
     }
 
 
+def profile_categorized_total(profile: Any) -> float:
+    direct_total = getattr(profile, "categorized_total", None)
+    if isinstance(direct_total, (int, float)):
+        return round(float(direct_total), 2)
+
+    category_totals = getattr(profile, "category_totals", {}) or {}
+    if isinstance(category_totals, dict):
+        return round(
+            sum(float(amount) for amount in category_totals.values() if isinstance(amount, (int, float))),
+            2,
+        )
+    return 0.0
+
+
+def profile_reported_total(profile: Any) -> float | None:
+    reported_total = getattr(profile, "reported_total", None)
+    if isinstance(reported_total, (int, float)):
+        return round(float(reported_total), 2)
+    return None
+
+
+def profile_display_total(profile: Any) -> float:
+    display_total = getattr(profile, "display_total", None)
+    if isinstance(display_total, (int, float)):
+        return round(float(display_total), 2)
+
+    reported_total = profile_reported_total(profile)
+    if reported_total is not None:
+        return reported_total
+
+    legacy_total = getattr(profile, "total_amount", None)
+    if isinstance(legacy_total, (int, float)):
+        return round(float(legacy_total), 2)
+
+    return profile_categorized_total(profile)
+
+
+def profile_total_delta(profile: Any) -> float | None:
+    total_delta = getattr(profile, "total_delta", None)
+    if isinstance(total_delta, (int, float)):
+        return round(float(total_delta), 2)
+
+    reported_total = profile_reported_total(profile)
+    if reported_total is None:
+        return None
+    return round(reported_total - profile_categorized_total(profile), 2)
+
+
 def merge_spending_profiles(
     profiles: list[SpendingProfile],
     source_names: list[str] | None = None,
@@ -159,6 +207,8 @@ def merge_spending_profiles(
     line_items = []
     uncategorized_lines: list[str] = []
     merchants: list[str] = []
+    combined_display_total = 0.0
+    all_receipts_reported_total = True
 
     for profile in profiles:
         if profile.merchant:
@@ -169,6 +219,9 @@ def merge_spending_profiles(
 
         line_items.extend(profile.line_items)
         uncategorized_lines.extend(profile.uncategorized_lines)
+        combined_display_total += profile_display_total(profile)
+        if profile_reported_total(profile) is None:
+            all_receipts_reported_total = False
 
     distinct_merchants = sorted(set(merchants))
     if not distinct_merchants:
@@ -185,7 +238,12 @@ def merge_spending_profiles(
         "source_receipt_count": len(profiles),
         "source_receipts": source_names or [],
         "source_planner_versions": planner_versions,
+        "display_total_override": round(combined_display_total, 2),
+        "total_display_method": "sum_of_per_receipt_reported_total_with_categorized_fallback",
     }
+    reported_total = None
+    if all_receipts_reported_total:
+        reported_total = round(sum(profile_reported_total(profile) or 0.0 for profile in profiles), 2)
 
     rounded_totals = {
         category: round(amount, 2)
@@ -195,6 +253,7 @@ def merge_spending_profiles(
     return SpendingProfile(
         merchant=merchant,
         category_totals=rounded_totals,
+        reported_total=reported_total,
         line_items=line_items,
         uncategorized_lines=uncategorized_lines,
         planner_version="aggregate",

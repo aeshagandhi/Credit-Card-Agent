@@ -195,14 +195,34 @@ class LineItem:
 class SpendingProfile:
     merchant: str | None
     category_totals: dict[str, float]
+    reported_total: float | None = None
     line_items: list[LineItem] = field(default_factory=list)
     uncategorized_lines: list[str] = field(default_factory=list)
     planner_version: str = "v1"
     planner_metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def total_amount(self) -> float:
+    def categorized_total(self) -> float:
         return round(sum(self.category_totals.values()), 2)
+
+    @property
+    def display_total(self) -> float:
+        override = self.planner_metadata.get("display_total_override")
+        if isinstance(override, (int, float)):
+            return round(float(override), 2)
+        if self.reported_total is not None:
+            return round(self.reported_total, 2)
+        return self.categorized_total
+
+    @property
+    def total_delta(self) -> float | None:
+        if self.reported_total is None:
+            return None
+        return round(self.reported_total - self.categorized_total, 2)
+
+    @property
+    def total_amount(self) -> float:
+        return self.display_total
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -210,6 +230,10 @@ class SpendingProfile:
             "planner_version": self.planner_version,
             "planner_metadata": self.planner_metadata,
             "category_totals": self.category_totals,
+            "reported_total": self.reported_total,
+            "categorized_total": self.categorized_total,
+            "display_total": self.display_total,
+            "total_delta": self.total_delta,
             "total_amount": self.total_amount,
             "line_items": [
                 {
@@ -273,6 +297,8 @@ class ReceiptPlanner:
         lines = self._normalize_lines(receipt_text)
         merchant = self._detect_merchant(lines)
         default_category = self._lookup_merchant_category(merchant) if merchant else None
+        summary_lines = self._extract_summary_lines_heuristic(lines)
+        reported_total, reported_total_line = self._extract_reported_total(summary_lines)
 
         category_totals = {category: 0.0 for category in CATEGORIES}
         line_items: list[LineItem] = []
@@ -306,11 +332,14 @@ class ReceiptPlanner:
         return self._build_profile(
             merchant=merchant,
             category_totals=category_totals,
+            reported_total=reported_total,
             line_items=line_items,
             uncategorized_lines=uncategorized_lines,
             planner_version="v1",
             planner_metadata={
                 "classification_method": "merchant_lookup_and_keyword_rules",
+                "summary_line_count": len(summary_lines),
+                "reported_total_source_line": reported_total_line,
             },
         )
 
@@ -322,6 +351,7 @@ class ReceiptPlanner:
             lines=lines,
             merchant=merchant,
         )
+        reported_total, reported_total_line = self._extract_reported_total(summary_lines)
         default_category = self._semantic_default_category(merchant)
 
         category_totals = {category: 0.0 for category in CATEGORIES}
@@ -332,6 +362,7 @@ class ReceiptPlanner:
             return self._build_profile(
                 merchant=merchant,
                 category_totals=category_totals,
+                reported_total=reported_total,
                 line_items=[],
                 uncategorized_lines=[],
                 planner_version="v2",
@@ -339,6 +370,7 @@ class ReceiptPlanner:
                     "classification_method": "transformer_semantic_classifier",
                     "model_name_or_path": self.v2_model_name_or_path,
                     "score_threshold": self.v2_score_threshold,
+                    "reported_total_source_line": reported_total_line,
                     **parser_metadata,
                 },
             )
@@ -374,6 +406,7 @@ class ReceiptPlanner:
         return self._build_profile(
             merchant=merchant,
             category_totals=category_totals,
+            reported_total=reported_total,
             line_items=line_items,
             uncategorized_lines=uncategorized_lines,
             planner_version="v2",
@@ -382,6 +415,7 @@ class ReceiptPlanner:
                 "model_name_or_path": self.v2_model_name_or_path,
                 "score_threshold": self.v2_score_threshold,
                 "merchant_default_category": default_category,
+                "reported_total_source_line": reported_total_line,
                 **parser_metadata,
                 **summary_adjustment_metadata,
             },
@@ -844,6 +878,7 @@ class ReceiptPlanner:
         self,
         merchant: str | None,
         category_totals: dict[str, float],
+        reported_total: float | None,
         line_items: list[LineItem],
         uncategorized_lines: list[str],
         planner_version: str,
@@ -855,6 +890,7 @@ class ReceiptPlanner:
         return SpendingProfile(
             merchant=merchant,
             category_totals=rounded_totals,
+            reported_total=reported_total,
             line_items=line_items,
             uncategorized_lines=uncategorized_lines,
             planner_version=planner_version,
@@ -984,6 +1020,52 @@ class ReceiptPlanner:
         if "total" in normalized or "balance" in normalized or "amount due" in normalized:
             return "total"
         return "other_summary"
+
+    def _extract_reported_total(
+        self,
+        summary_lines: list[dict[str, Any]],
+    ) -> tuple[float | None, str | None]:
+        best_match: tuple[int, float, str] | None = None
+
+        for summary_line in summary_lines:
+            amount = self._coerce_amount(summary_line.get("amount"))
+            if amount is None or amount <= 0:
+                continue
+
+            description = str(summary_line.get("description", "")).strip()
+            source_line = str(summary_line.get("source_line", description)).strip() or description
+            line_type = str(summary_line.get("line_type", "")).strip() or self._classify_summary_line_type(
+                description
+            )
+            priority = self._reported_total_priority(description=description, line_type=line_type)
+            if priority < 0:
+                continue
+
+            candidate = (priority, amount, source_line)
+            if best_match is None or candidate > best_match:
+                best_match = candidate
+
+        if best_match is None:
+            return None, None
+        return round(best_match[1], 2), best_match[2]
+
+    def _reported_total_priority(self, description: str, line_type: str) -> int:
+        normalized = description.lower()
+        if "subtotal" in normalized or "sub total" in normalized:
+            return -1
+        if any(
+            keyword in normalized
+            for keyword in ["change", "payment", "tender", "cash", "visa", "mastercard", "debit", "credit"]
+        ):
+            return -1
+
+        if any(keyword in normalized for keyword in ["grand total", "net total", "amount due", "balance due"]):
+            return 4
+        if line_type == "total":
+            return 3
+        if "total" in normalized or "balance" in normalized:
+            return 2
+        return -1
 
     def _pair_amount_only_line(self, lines: list[str], index: int) -> str | None:
         current_line = lines[index]
