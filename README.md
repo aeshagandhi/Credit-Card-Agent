@@ -1,51 +1,73 @@
 # Credit Card Agent
 
-This project builds a receipt-based credit card recommendation agent with three stages:
+This project is a receipt-based credit card recommendation system built as a school project prototype. The pipeline takes a receipt image, extracts text, converts that text into spending categories, and then uses an LLM research agent to recommend a credit card based on the spending profile.
 
-1. `Perception`: turn a receipt image into text
-2. `Planning`: turn receipt text into spending categories
-3. `Control`: use an LLM agent with web tools to recommend a card
+The project is organized around three stages:
 
-The project is implemented in two versions:
+1. `Perception`: convert a receipt image into text
+2. `Planning`: convert receipt text into structured spending categories
+3. `Control`: use an LLM plus web research tools to recommend a card
 
-- `Version 1` uses non-deep-learning perception and planning
-- `Version 2` uses deep-learning perception and planning
+The architecture is intentionally set up so that both project versions share the same control phase and the same output format. Only perception and planning change between versions.
 
-Both versions share the same LLM-based control phase.
+## Current Versions
 
-## Version Overview
-
-### Version 1: Non-DL
+### Version 1: Classical
 
 - `Perception`: Tesseract OCR
-- `Planning`: classical merchant lookup + keyword-based categorization
-- `Control`: shared LLM agent with web search
+- `Planning`: rule-based merchant and keyword categorization
+- `Control`: shared LLM agent with web research
 
-### Version 2: DL
+### Version 2: Deep Learning
 
 - `Perception`: PaddleOCR
-- `Planning`: transformer-based semantic transaction classifier
-- `Control`: shared LLM agent with web search
+- `Planning`: transformer-based semantic classification
+- `Control`: shared LLM agent with web research
 
-TrOCR is still included in the repo as an experimental comparison OCR path, but the main `Version 2` pipeline now uses PaddleOCR because it performs much better on full receipt images.
+### Comparison Paths
 
-### Reference Path
+The repo also keeps two comparison modes:
 
-For comparison, the notebook also supports:
+- `Experimental: TrOCR`: a DL OCR comparison path that is still useful for side-by-side evaluation
+- `Labels Reference`: dataset-provided text reconstructed from annotations so we can compare downstream behavior without OCR noise
 
-- `labels`: SROIE-provided words and bounding boxes reconstructed into text
+In the current codebase, `Version 2` defaults to `paddleocr + planning v2`.
 
-This is useful for checking whether errors are coming from OCR or from the downstream pipeline.
+## End-to-End Pipeline
+
+```text
+receipt image
+  -> perception
+  -> extracted text
+  -> planning
+  -> spending profile
+  -> control
+  -> card recommendation
+```
+
+The shared output contract is:
+
+- OCR text and metadata
+- a `SpendingProfile`
+- a final recommendation with explanation, rankings, caveats, and sources
+
+That design is what makes it possible to compare V1, V2, TrOCR, and labels-reference runs inside the same notebook and UI.
 
 ## Project Structure
 
 ```text
 credit-card-agent/
+├── app.py
 ├── README.md
 ├── requirements.txt
 ├── .env
+├── .streamlit/
+│   └── config.toml
 ├── tool_registry.py
+├── download_nano_receipts.py
 ├── data/
+│   ├── receipt_dataset/
+│   ├── receipts_nano/
 │   ├── receipts/
 │   ├── labels/
 │   └── sample_profiles/
@@ -62,100 +84,116 @@ credit-card-agent/
 │   ├── control.py
 │   ├── evaluate.py
 │   └── utils.py
+├── tests/
+│   └── test_pipeline.py
 ├── models/
 │   └── planning_v1.pkl
 └── outputs/
-    ├── ocr_results/
-    └── recommendations/
 ```
 
-## End-to-End Pipeline
+## Data Sources
 
-```text
-receipt image
-  -> perception
-  -> extracted receipt text
-  -> planning
-  -> spending profile
-  -> control
-  -> credit card recommendation
-```
+The repo currently supports multiple receipt sources.
 
-The same pipeline shape is used for both versions. Only perception and planning change between V1 and V2.
+### Primary Local Dataset
+
+- `data/receipt_dataset/ds0/img`: receipt images
+- `data/receipt_dataset/ds0/ann`: matching annotation JSON files
+
+This is the main dataset currently used by the helper utilities and demo flows. When possible, the project uses these images as the default sample receipts.
+
+### Additional Datasets
+
+- `data/receipts_nano`: Nano receipt images downloaded through the Hugging Face loader workflow
+- `data/receipts`: older receipt image set used earlier in the project
+- `data/labels/sroie_labels.json`: cached SROIE words and bounding boxes for label-based comparison
+- `data/labels/nano_receipts_index.json`: Nano dataset index metadata
+
+### Dataset Preference Order
+
+The helper functions in [src/utils.py](src/utils.py) choose sample data in this order:
+
+1. `data/receipt_dataset/ds0/img`
+2. `data/receipts_nano`
+3. `data/receipts`
+
+For label-based comparison, the code first looks for a local annotation JSON in `data/receipt_dataset/ds0/ann` and then falls back to cached SROIE labels if needed.
 
 ## Stage 1: Perception
 
-Code: [src/perception.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/src/perception.py:1)
+Code: [src/perception.py](src/perception.py)
 
-The perception module converts a receipt image into text. It supports four modes.
+The perception module returns a shared `OCRResult` object no matter which OCR method is used. That means the downstream planning and control phases do not need to change when the perception method changes.
 
 ### `tesseract`
 
-This is the non-DL perception path.
+This is the non-DL OCR path used by `Version 1`.
 
-Processing steps:
+Steps:
 
-1. Load image with OpenCV
+1. Load the image with OpenCV
 2. Convert to grayscale
 3. Apply Gaussian blur
 4. Apply adaptive thresholding
-5. Estimate skew and deskew the image
-6. Run Tesseract OCR
-7. Clean and return text
+5. Estimate skew and deskew
+6. Run Tesseract
+7. Clean the extracted text
 
 ### `paddleocr`
 
-This is the main DL perception path used by `Version 2`.
+This is the main DL OCR path used by `Version 2`.
 
-Processing steps:
+Steps:
 
 1. Load the original receipt image
 2. Run PaddleOCR document orientation handling
 3. Run PaddleOCR text detection
 4. Run PaddleOCR text recognition
-5. Collect detected text lines and confidence scores
-6. Clean and return text
+5. Collect recognized lines and confidence scores
+6. Clean the extracted text
 
-This works better than TrOCR in the current project because PaddleOCR is designed for full-page OCR with built-in detection, while TrOCR is being applied more directly to the whole receipt image.
+This works better than the current TrOCR setup in this repo because PaddleOCR is designed for full document OCR, while TrOCR is currently being applied more directly to whole receipt images.
 
 ### `trocr`
 
-This is an experimental DL comparison path.
+This is an experimental comparison OCR path.
 
-Processing steps:
+Steps:
 
-1. Run the same preprocessing as above
+1. Apply the same classical preprocessing used for Tesseract
 2. Convert the processed image to RGB
-3. Pass the image into TrOCR
-4. Decode generated text tokens
-5. Clean and return text
+3. Send it into `microsoft/trocr-base-printed`
+4. Decode generated tokens into text
+5. Clean the extracted text
 
-Current note:
-
-- TrOCR is currently applied to full receipt images
-- It usually works better on cropped lines or regions
-- So if it underperforms, that is mostly a pipeline setup issue, not proof that DL OCR is worse
+TrOCR is still valuable for comparison, but it is not the main production path in this project right now.
 
 ### `labels`
 
-This is the reference comparison path.
+This is the reference-text comparison path.
 
-Processing steps:
+It reconstructs receipt text from:
 
-1. Load cached SROIE `words` and `bboxes`
-2. Group words into lines by vertical position
-3. Sort words left-to-right
-4. Reconstruct cleaned receipt text
+- local annotation JSON in `data/receipt_dataset/ds0/ann`, or
+- cached SROIE words and bounding boxes in `data/labels/sroie_labels.json`
 
-This is not the main perception system. It is there so we can compare OCR-based input against the dataset’s provided text.
+This path is useful for checking whether errors are caused mostly by OCR or by later planning/control logic.
 
 ## Stage 2: Planning
 
-Code: [src/planning.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/src/planning.py:1)
+Code: [src/planning.py](src/planning.py)
 
-The planning module turns receipt text into a `SpendingProfile`.
+The planner converts receipt text into a `SpendingProfile`. Both versions output the same structure:
 
-Target categories:
+- `merchant`
+- `planner_version`
+- `planner_metadata`
+- `category_totals`
+- `total_amount`
+- `line_items`
+- `uncategorized_lines`
+
+Target categories are:
 
 - `groceries`
 - `dining`
@@ -166,126 +204,78 @@ Target categories:
 - `healthcare`
 - `other`
 
-### Shared Planning Preprocessing
+### Shared Preprocessing
 
 Both planning versions first do the same basic parsing:
 
-1. Split OCR text into lines
+1. Normalize the OCR text into lines
 2. Detect the merchant from the top of the receipt
-3. Extract monetary amounts from lines
-4. Remove summary rows like `TOTAL`, `SUBTOTAL`, `TAX`, and payment rows
-5. Build item descriptions from remaining purchase-like lines
+3. Extract monetary amounts
+4. Drop summary rows such as `TOTAL`, `SUBTOTAL`, `TAX`, and payment lines
+5. Build purchase-like line items
 
-After that, V1 and V2 differ in how category decisions are made.
+### Planning V1
 
-### Planning V1: Classical
+This is the classical non-DL planning path.
 
-This is the non-DL planning version.
+It mainly uses:
 
-How decisions are made:
+- merchant lookup defaults
+- keyword matching by category
+- simple fallback rules
 
-1. Check whether the merchant strongly implies a category
-2. Score the line using hand-written category keywords
-3. Fall back to the merchant default when possible
-4. Otherwise assign `other`
+This version is easier to interpret and explain, but it is also more brittle when OCR is noisy or item names are unusual.
 
-This is fast, interpretable, and simple, but it struggles with messy OCR abbreviations and semantic ambiguity.
+### Planning V2
 
-### Planning V2: DL
+This is the DL planning path.
 
-This is the deep-learning planning version.
+It uses:
 
-How decisions are made:
+- merchant plus line-item description as the classification text
+- a transformer zero-shot classifier
+- shared category labels
+- fallback logic when confidence is weak
 
-1. Use the merchant plus line description as the classification text
-2. Run a transformer-based semantic classifier
-3. Pick the best category label from the shared category set
-4. If confidence is weak, fall back to merchant-based defaults or `other`
-
-Implementation detail:
-
-- The code uses a transformer zero-shot classification pipeline by default
-- If a fine-tuned model is later placed in `models/planning_v2/`, the planner can point to that instead
-
-This gives V2 a much more proposal-aligned planning path than simple keyword logic.
-
-### Planning Output
-
-Both V1 and V2 return the same `SpendingProfile` structure:
-
-- `merchant`
-- `planner_version`
-- `planner_metadata`
-- `category_totals`
-- `total_amount`
-- `line_items`
-- `uncategorized_lines`
-
-That shared output contract is what allows the control phase to stay identical across both versions.
+The default model is a zero-shot NLI classifier rather than a custom fine-tuned receipt classifier. That is appropriate for this project scope, but it is still a limitation to mention in the final presentation.
 
 ## Stage 3: Control
 
-Code: [src/control.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/src/control.py:1)
+Code: [src/control.py](src/control.py)
 
-The control phase is shared across both V1 and V2.
+The control phase is shared across all versions. It is no longer rule-based. It is an LLM agent that researches current card options and returns a structured recommendation.
 
-It is an LLM-based agent that uses your local [tool_registry.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/tool_registry.py:1) tools to research current credit card information before recommending a card.
-
-### Control Inputs
-
-- the `SpendingProfile` from planning
-- the current date
-- tool access for live research
-
-### Control Tools
-
-The control agent can use:
+The control agent uses [tool_registry.py](tool_registry.py) and currently has access to:
 
 - `web_search`
 - `fetch_webpage`
 - `calculator`
 - `save_research_note`
 
-### How The Control Agent Works
+### Control Inputs
 
-1. Receive the spending profile
-2. Identify the top spend categories
-3. Use `web_search` to find currently relevant credit cards
-4. Use `fetch_webpage` to inspect promising sources and card details
-5. Use `calculator` when useful for estimated annual value
-6. Ask the LLM to synthesize a structured recommendation
-7. Return JSON output
+- the `SpendingProfile`
+- the current date
+- live web-search and webpage-fetch tools
 
-The control output includes:
+### Control Output
+
+The final output includes:
 
 - primary recommendation
 - runner-up recommendation
 - explanation
 - caveats
-- card rankings
-- sources used
+- ranked card list
+- sources
 
-This means the control phase is no longer a fixed card lookup table. It is now a shared LLM research agent for both versions of the pipeline.
+This is what makes the project proposal-aligned: both V1 and V2 use the same LLM-based control phase.
 
-## Why The Architecture Matters
+## Streamlit Demo UI
 
-The project is intentionally structured so that:
+Code: [app.py](app.py)
 
-- V1 and V2 differ only in perception and planning
-- control is shared
-- outputs remain compatible across versions
-
-That makes the comparison cleaner:
-
-- if V2 does better, we can attribute more of that gain to the DL perception/planning steps
-- if `labels` does much better than OCR methods, the main bottleneck is perception
-- if both planning versions behave similarly on `labels`, the planning difference may be small compared with OCR noise
-
-## Streamlit UI
-
-There is now a front-facing Streamlit app for presentation and demo use:
-
-[app.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/app.py:1)
+The repo includes a front-facing Streamlit app for presentation and demo use.
 
 Run it with:
 
@@ -293,28 +283,31 @@ Run it with:
 streamlit run app.py
 ```
 
-What the UI supports:
+The UI supports:
 
-- upload one or more receipt images
-- choose a pipeline preset:
-  - `Version 1: Classical`
-  - `Version 2: Deep Learning`
-  - `Experimental: TrOCR`
-  - `Labels Reference`
-- combine multiple receipts into one spending profile
-- generate one final shared control-phase recommendation
-- inspect parsed text, category totals, and line items for each receipt
-- ask follow-up questions in a small chat panel grounded in the current run
+- uploading one or more receipt images
+- choosing a pipeline preset
+- combining multiple receipts into one aggregate spending profile
+- running the shared recommendation phase
+- viewing parsed text, category totals, and line items
+- chatting about the results after a run
 
-The Streamlit app is the best option for a final presentation because it feels like a user-facing product rather than a research notebook.
+Current presets in the UI:
 
-## Notebook Workflow
+- `Version 1: Classical`
+- `Version 2: Deep Learning`
+- `Experimental: TrOCR`
+- `Labels Reference`
 
-Use [execution_notebook.ipynb](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/notebooks/execution_notebook.ipynb:1) as the main interface.
+The UI also now includes a light-theme configuration in [.streamlit/config.toml](.streamlit/config.toml) so it remains readable even if the computer itself is using dark mode.
 
-The notebook now compares pipeline variants, not just OCR methods.
+## Execution Notebook
 
-Default configurations:
+Notebook: [notebooks/execution_notebook.ipynb](notebooks/execution_notebook.ipynb)
+
+This is the main comparison notebook for the project. It is meant to show the pipeline side by side across methods, not just OCR outputs.
+
+The notebook currently compares:
 
 - `version_1_non_dl`: `tesseract` + `planning v1`
 - `version_2_dl`: `paddleocr` + `planning v2`
@@ -323,80 +316,119 @@ Default configurations:
 
 The notebook shows:
 
-- the receipt image
-- parsed text for each pipeline
-- spending profile comparison
-- final recommendation comparison
-- a batch table with inline thumbnails and parsed text blocks
-
-## CLI Usage
-
-### Single Receipt
-
-Code: [src/main.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/src/main.py:1)
-
-Example V1:
-
-```bash
-python src/main.py --image data/receipts/X00016469619.jpg --pipeline-version v1
-```
-
-Example V2:
-
-```bash
-python src/main.py --image data/receipts/X00016469619.jpg --pipeline-version v2
-```
-
-Example reference run:
-
-```bash
-python src/main.py --image data/receipts/X00016469619.jpg --ocr-method labels --planning-version v2
-```
-
-### Batch Sample Run
-
-Code: [src/run_sample_receipts.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/src/run_sample_receipts.py:1)
-
-```bash
-python src/run_sample_receipts.py --pipeline-version v1 --limit 3
-python src/run_sample_receipts.py --pipeline-version v2 --limit 3
-```
+- the selected receipt image
+- parsed text for each method
+- planning outputs
+- recommendation outputs
+- comparison tables with larger images and extracted text for visual inspection
 
 ## Environment Setup
 
-Add your OpenAI key to `.env`:
+This project is easiest to run with Python `3.11` or `3.12`.
+
+### 1. Create and activate a virtual environment
+
+Example:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install Python dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Add your API key
+
+Create a `.env` file in the project root:
 
 ```env
 OPENAI_API_KEY=your_api_key_here
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-Install dependencies:
+### 4. External dependency note
+
+Tesseract OCR requires the Tesseract binary to be installed separately on your machine. The Python package alone is not enough.
+
+## Important Runtime Notes
+
+- `Version 2` depends on `paddleocr` and `paddlepaddle`
+- `Experimental: TrOCR` and planning V2 depend on `transformers` and `torch`
+- the first run of PaddleOCR or TrOCR may download model weights
+- the control phase requires internet access because it uses live research tools
+- the notebook and Streamlit app should be run from the project environment so the OCR and ML dependencies are available
+
+## Recommended Run Commands
+
+### Streamlit
 
 ```bash
-pip install -r requirements.txt
+streamlit run app.py
 ```
 
-Important notes:
+### Main notebook
 
-- `torch` and `transformers` are required for TrOCR and planning V2
-- `paddleocr` and `paddlepaddle` are required for the main V2 OCR pipeline
-- the Tesseract binary must be installed separately on your machine
-- the notebook should use the project `.venv`
-- the control phase uses live web access through `tool_registry`, so internet access is required at runtime
+```bash
+jupyter lab notebooks/execution_notebook.ipynb
+```
+
+### Single-receipt CLI
+
+Recommended module-style invocation from the repo root:
+
+```bash
+python -m src.main --image data/receipt_dataset/ds0/img/1007-receipt.jpg --pipeline-version v1
+python -m src.main --image data/receipt_dataset/ds0/img/1007-receipt.jpg --pipeline-version v2
+python -m src.main --image data/receipt_dataset/ds0/img/1007-receipt.jpg --ocr-method labels --planning-version v2
+```
+
+### OCR comparison
+
+```bash
+python -m src.main --image data/receipt_dataset/ds0/img/1007-receipt.jpg --compare-ocr
+```
+
+### Batch sample run
+
+```bash
+python -m src.run_sample_receipts --pipeline-version v1 --limit 3
+python -m src.run_sample_receipts --pipeline-version v2 --limit 3
+```
+
+## Why The Architecture Matters
+
+The repo is structured so that:
+
+- V1 and V2 differ only in perception and planning
+- the control phase stays shared
+- outputs stay compatible across methods
+
+That makes evaluation much cleaner:
+
+- if `labels` performs much better than OCR methods, the bottleneck is mostly perception
+- if V2 outperforms V1 on the same receipt, the gain likely comes from the DL perception/planning path
+- if planning outputs look similar across methods when fed clean labels, then OCR quality is probably the main source of downstream error
 
 ## Current Limitations
 
-1. TrOCR is still being run on whole receipts instead of segmented lines.
-2. Planning V2 is transformer-based but not yet truly fine-tuned on a custom receipt transaction dataset.
-3. Control recommendations depend on the quality of both live web results and the upstream spending profile.
-4. OCR errors can still dominate the final recommendation quality, even when PaddleOCR is stronger than the other current OCR options.
+1. TrOCR is still being run on whole receipt images instead of segmented lines or regions.
+2. Planning V2 is transformer-based, but it is not a custom fine-tuned receipt classifier.
+3. OCR quality still has a large effect on downstream planning quality.
+4. The control agent depends on live web results and LLM behavior, so recommendations can vary slightly over time.
+5. This is a prototype-style school project, so the goal is a clear working pipeline and comparison framework rather than a fully production-hardened system.
 
 ## Main Files
 
-- [src/perception.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/src/perception.py:1)
-- [src/planning.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/src/planning.py:1)
-- [src/control.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/src/control.py:1)
-- [tool_registry.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/tool_registry.py:1)
-- [src/main.py](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/src/main.py:1)
-- [notebooks/execution_notebook.ipynb](/Users/aeshagandhi/Downloads/MIDS-Sp26/Agents/Credit-Card-Agent/notebooks/execution_notebook.ipynb:1)
+- [app.py](app.py)
+- [src/perception.py](src/perception.py)
+- [src/planning.py](src/planning.py)
+- [src/control.py](src/control.py)
+- [src/utils.py](src/utils.py)
+- [src/main.py](src/main.py)
+- [src/run_sample_receipts.py](src/run_sample_receipts.py)
+- [tool_registry.py](tool_registry.py)
+- [notebooks/execution_notebook.ipynb](notebooks/execution_notebook.ipynb)

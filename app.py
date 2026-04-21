@@ -105,12 +105,30 @@ def inject_styles() -> None:
             --border: rgba(18, 38, 58, 0.14);
         }
 
+        html, body, [class*="stApp"] {
+            color-scheme: light;
+        }
+
         .stApp {
             background:
                 radial-gradient(circle at top left, rgba(197, 107, 47, 0.14), transparent 32%),
                 radial-gradient(circle at top right, rgba(59, 102, 88, 0.14), transparent 28%),
                 linear-gradient(180deg, #f8f5ee 0%, #f1eadf 100%);
-            color: var(--ink);
+            color: var(--ink) !important;
+        }
+
+        [data-testid="stAppViewContainer"],
+        [data-testid="stHeader"] {
+            background: transparent !important;
+        }
+
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, rgba(255, 250, 242, 0.98), rgba(243, 235, 220, 0.98)) !important;
+            border-right: 1px solid var(--border);
+        }
+
+        [data-testid="stSidebar"] * {
+            color: var(--ink) !important;
         }
 
         .block-container {
@@ -118,14 +136,123 @@ def inject_styles() -> None:
             padding-bottom: 2.5rem;
         }
 
-        h1, h2, h3, h4 {
+        h1, h2, h3, h4, h5, h6 {
             font-family: Georgia, "Times New Roman", serif;
-            color: var(--ink);
+            color: var(--ink) !important;
             letter-spacing: -0.02em;
         }
 
-        p, li, label, span, div {
+        p, li, label, span, div, small {
             color: var(--ink);
+        }
+
+        a {
+            color: var(--accent-deep) !important;
+        }
+
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stMarkdownContainer"] li,
+        [data-testid="stMarkdownContainer"] span,
+        [data-testid="stCaptionContainer"],
+        [data-testid="stCaptionContainer"] * {
+            color: var(--ink) !important;
+        }
+
+        .stRadio label,
+        .stCheckbox label,
+        .stMultiSelect label,
+        .stFileUploader label,
+        .stChatInput label {
+            color: var(--ink) !important;
+            font-weight: 600;
+        }
+
+        [data-baseweb="radio"] *,
+        [data-baseweb="checkbox"] *,
+        [data-baseweb="select"] *,
+        [data-baseweb="tag"] *,
+        [data-baseweb="popover"] * {
+            color: var(--ink) !important;
+        }
+
+        [data-baseweb="select"] > div,
+        [data-baseweb="input"] > div,
+        [data-baseweb="textarea"] > div,
+        .stFileUploader > div > div {
+            background: rgba(255, 251, 244, 0.95) !important;
+            border: 1px solid rgba(18, 38, 58, 0.16) !important;
+            border-radius: 16px !important;
+            box-shadow: none !important;
+        }
+
+        [data-baseweb="select"] input,
+        [data-baseweb="input"] input,
+        [data-baseweb="textarea"] textarea,
+        .stChatInput input {
+            color: var(--ink) !important;
+            caret-color: var(--accent-deep) !important;
+        }
+
+        .stButton button,
+        .stDownloadButton button,
+        .stFileUploader button {
+            background: linear-gradient(135deg, #c56b2f, #a5521c) !important;
+            color: #fff9f2 !important;
+            border: none !important;
+            border-radius: 999px !important;
+            box-shadow: 0 10px 24px rgba(165, 82, 28, 0.22);
+        }
+
+        .stButton button:hover,
+        .stDownloadButton button:hover,
+        .stFileUploader button:hover {
+            filter: brightness(1.03);
+        }
+
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 0.5rem;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            background: rgba(255, 251, 244, 0.82) !important;
+            border: 1px solid rgba(18, 38, 58, 0.12) !important;
+            border-radius: 14px 14px 0 0 !important;
+            color: var(--muted) !important;
+        }
+
+        .stTabs [aria-selected="true"] {
+            background: rgba(255, 255, 255, 0.96) !important;
+            color: var(--ink) !important;
+        }
+
+        [data-testid="stDataFrame"],
+        [data-testid="stTable"] {
+            background: rgba(255, 255, 255, 0.82) !important;
+            border: 1px solid rgba(18, 38, 58, 0.12) !important;
+            border-radius: 18px !important;
+            padding: 0.3rem !important;
+        }
+
+        [data-testid="stDataFrame"] * ,
+        [data-testid="stTable"] * {
+            color: var(--ink) !important;
+        }
+
+        [data-testid="stAlert"] {
+            background: rgba(255, 250, 242, 0.92) !important;
+            border: 1px solid rgba(18, 38, 58, 0.12) !important;
+            border-radius: 18px !important;
+        }
+
+        [data-testid="stProgressBar"] > div > div {
+            background: linear-gradient(90deg, #c56b2f, #3b6658) !important;
+        }
+
+        [data-testid="stChatMessage"] {
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid rgba(18, 38, 58, 0.1);
+            border-radius: 18px;
+            padding: 0.3rem 0.75rem;
         }
 
         .hero-shell {
