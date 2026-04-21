@@ -14,14 +14,13 @@ import streamlit as st
 
 from src.control import CreditCardRecommender
 from src.perception import ReceiptPerception
-from src.planning import CATEGORIES, ReceiptPlanner
+from src.planning import ReceiptPlanner
 from src.utils import (
     has_reference_labels,
     list_receipt_images,
     merge_spending_profiles,
     ocr_result_as_dict,
     project_root,
-    preferred_labeled_receipts_dir,
     preferred_receipts_dir,
     preview_text,
     resolve_reference_labeled_image,
@@ -34,35 +33,40 @@ PROJECT_ROOT = project_root()
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 PIPELINE_PRESETS = {
-    "Version 1: Classical": {
+    "Classic Pipeline (V1)": {
         "pipeline_version": "v1",
         "ocr_method": "tesseract",
         "planning_version": "v1",
-        "description": "Classical OCR plus rule-based planning.",
+        "description": "Tesseract OCR with the classical planning pipeline.",
     },
-    "Version 2: Deep Learning": {
+    "PaddleOCR Pipeline (V2)": {
         "pipeline_version": "v2",
         "ocr_method": "paddleocr",
         "planning_version": "v2",
-        "description": "PaddleOCR plus transformer-based planning.",
+        "description": "PaddleOCR with the deep-learning planning pipeline.",
     },
-    "Experimental: TrOCR": {
-        "pipeline_version": "v2",
-        "ocr_method": "trocr",
-        "planning_version": "v2",
-        "description": "TrOCR plus transformer-based planning for side-by-side OCR comparison.",
-    },
-    "Curated Receipt Text": {
+    "Structured Reference Text": {
         "pipeline_version": None,
         "ocr_method": "labels",
         "planning_version": "v2",
-        "description": "Dataset-aligned annotated text with planning v2 for comparison and presentation.",
+        "description": "Receipt text reconstructed from dataset annotations for controlled comparison.",
     },
+}
+
+METHOD_LABELS = {
+    "tesseract": "Tesseract OCR",
+    "paddleocr": "PaddleOCR",
+    "labels": "Structured Reference Text",
+}
+
+PLANNING_LABELS = {
+    "v1": "Classical Planning",
+    "v2": "Deep Planning",
 }
 
 
 st.set_page_config(
-    page_title="Receipt Card Advisor",
+    page_title="Receipt Rewards Advisor",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -96,14 +100,14 @@ def inject_styles() -> None:
         """
         <style>
         :root {
-            --paper: #f6f1e7;
-            --card: rgba(255, 252, 245, 0.84);
-            --ink: #12263a;
-            --muted: #5b6b7a;
-            --accent: #c56b2f;
-            --accent-deep: #6f3b18;
-            --leaf: #3b6658;
-            --border: rgba(18, 38, 58, 0.14);
+            --paper: #f3f7fb;
+            --card: rgba(255, 255, 255, 0.88);
+            --ink: #11253f;
+            --muted: #60748a;
+            --accent: #1d5d8c;
+            --accent-deep: #123c61;
+            --leaf: #0f7a6c;
+            --border: rgba(17, 37, 63, 0.12);
         }
 
         html, body, [class*="stApp"] {
@@ -112,9 +116,9 @@ def inject_styles() -> None:
 
         .stApp {
             background:
-                radial-gradient(circle at top left, rgba(197, 107, 47, 0.14), transparent 32%),
-                radial-gradient(circle at top right, rgba(59, 102, 88, 0.14), transparent 28%),
-                linear-gradient(180deg, #f8f5ee 0%, #f1eadf 100%);
+                radial-gradient(circle at top left, rgba(29, 93, 140, 0.12), transparent 34%),
+                radial-gradient(circle at top right, rgba(15, 122, 108, 0.12), transparent 30%),
+                linear-gradient(180deg, #f7fbff 0%, #eef4f8 100%);
             color: var(--ink) !important;
         }
 
@@ -124,7 +128,7 @@ def inject_styles() -> None:
         }
 
         [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, rgba(255, 250, 242, 0.98), rgba(243, 235, 220, 0.98)) !important;
+            background: linear-gradient(180deg, rgba(251, 253, 255, 0.98), rgba(239, 245, 249, 0.98)) !important;
             border-right: 1px solid var(--border);
         }
 
@@ -180,8 +184,8 @@ def inject_styles() -> None:
         [data-baseweb="input"] > div,
         [data-baseweb="textarea"] > div,
         .stFileUploader > div > div {
-            background: rgba(255, 251, 244, 0.95) !important;
-            border: 1px solid rgba(18, 38, 58, 0.16) !important;
+            background: rgba(248, 251, 254, 0.96) !important;
+            border: 1px solid rgba(17, 37, 63, 0.14) !important;
             border-radius: 16px !important;
             box-shadow: none !important;
         }
@@ -197,11 +201,11 @@ def inject_styles() -> None:
         .stButton button,
         .stDownloadButton button,
         .stFileUploader button {
-            background: linear-gradient(135deg, #c56b2f, #a5521c) !important;
-            color: #fff9f2 !important;
+            background: linear-gradient(135deg, #1d5d8c, #123c61) !important;
+            color: #f8fbff !important;
             border: none !important;
             border-radius: 999px !important;
-            box-shadow: 0 10px 24px rgba(165, 82, 28, 0.22);
+            box-shadow: 0 12px 24px rgba(18, 60, 97, 0.18);
         }
 
         .stButton button:hover,
@@ -215,8 +219,8 @@ def inject_styles() -> None:
         }
 
         .stTabs [data-baseweb="tab"] {
-            background: rgba(255, 251, 244, 0.82) !important;
-            border: 1px solid rgba(18, 38, 58, 0.12) !important;
+            background: rgba(245, 249, 252, 0.88) !important;
+            border: 1px solid rgba(17, 37, 63, 0.12) !important;
             border-radius: 14px 14px 0 0 !important;
             color: var(--muted) !important;
         }
@@ -229,7 +233,7 @@ def inject_styles() -> None:
         [data-testid="stDataFrame"],
         [data-testid="stTable"] {
             background: rgba(255, 255, 255, 0.82) !important;
-            border: 1px solid rgba(18, 38, 58, 0.12) !important;
+            border: 1px solid rgba(17, 37, 63, 0.12) !important;
             border-radius: 18px !important;
             padding: 0.3rem !important;
         }
@@ -240,28 +244,28 @@ def inject_styles() -> None:
         }
 
         [data-testid="stAlert"] {
-            background: rgba(255, 250, 242, 0.92) !important;
-            border: 1px solid rgba(18, 38, 58, 0.12) !important;
+            background: rgba(248, 251, 254, 0.94) !important;
+            border: 1px solid rgba(17, 37, 63, 0.12) !important;
             border-radius: 18px !important;
         }
 
         [data-testid="stProgressBar"] > div > div {
-            background: linear-gradient(90deg, #c56b2f, #3b6658) !important;
+            background: linear-gradient(90deg, #1d5d8c, #0f7a6c) !important;
         }
 
         [data-testid="stChatMessage"] {
             background: rgba(255, 255, 255, 0.72);
-            border: 1px solid rgba(18, 38, 58, 0.1);
+            border: 1px solid rgba(17, 37, 63, 0.1);
             border-radius: 18px;
             padding: 0.3rem 0.75rem;
         }
 
         .hero-shell {
-            background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(248,241,228,0.9));
+            background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(240,247,252,0.94));
             border: 1px solid var(--border);
-            border-radius: 24px;
-            padding: 1.5rem 1.6rem 1.3rem 1.6rem;
-            box-shadow: 0 18px 48px rgba(18, 38, 58, 0.08);
+            border-radius: 28px;
+            padding: 1.65rem 1.75rem 1.5rem 1.75rem;
+            box-shadow: 0 20px 56px rgba(17, 37, 63, 0.08);
             margin-bottom: 1rem;
         }
 
@@ -270,15 +274,60 @@ def inject_styles() -> None:
             text-transform: uppercase;
             letter-spacing: 0.14em;
             color: var(--accent-deep);
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.45rem;
             font-weight: 700;
         }
 
         .hero-copy {
             color: var(--muted);
-            max-width: 52rem;
+            max-width: 54rem;
             font-size: 1rem;
             line-height: 1.55;
+        }
+
+        .workflow-card {
+            background: linear-gradient(145deg, rgba(255,255,255,0.96), rgba(243,248,252,0.92));
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: 1rem 1.1rem;
+            box-shadow: 0 10px 28px rgba(17, 37, 63, 0.05);
+            margin-bottom: 1rem;
+        }
+
+        .workflow-label {
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-size: 0.72rem;
+            color: var(--muted);
+            font-weight: 700;
+            margin-bottom: 0.3rem;
+        }
+
+        .workflow-title {
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 1.2rem;
+            margin-bottom: 0.35rem;
+        }
+
+        .workflow-meta {
+            color: var(--muted);
+            font-size: 0.93rem;
+            line-height: 1.45;
+        }
+
+        .workflow-pills {
+            margin-top: 0.8rem;
+        }
+
+        .workflow-pill {
+            display: inline-block;
+            margin: 0 0.4rem 0.35rem 0;
+            padding: 0.28rem 0.65rem;
+            border-radius: 999px;
+            background: rgba(17, 37, 63, 0.06);
+            border: 1px solid rgba(17, 37, 63, 0.1);
+            font-size: 0.82rem;
+            color: var(--ink);
         }
 
         .metric-card {
@@ -287,7 +336,7 @@ def inject_styles() -> None:
             border-radius: 20px;
             padding: 1rem 1.1rem;
             min-height: 140px;
-            box-shadow: 0 10px 30px rgba(18, 38, 58, 0.05);
+            box-shadow: 0 10px 30px rgba(17, 37, 63, 0.05);
         }
 
         .metric-label {
@@ -314,11 +363,11 @@ def inject_styles() -> None:
         }
 
         .recommendation-card {
-            background: linear-gradient(145deg, rgba(255,255,255,0.92), rgba(245,236,221,0.88));
+            background: linear-gradient(145deg, rgba(255,255,255,0.96), rgba(242,247,252,0.9));
             border: 1px solid var(--border);
             border-radius: 24px;
             padding: 1.2rem 1.2rem 1rem 1.2rem;
-            box-shadow: 0 14px 38px rgba(18, 38, 58, 0.08);
+            box-shadow: 0 14px 38px rgba(17, 37, 63, 0.08);
             height: 100%;
         }
 
@@ -345,22 +394,23 @@ def inject_styles() -> None:
 
         .source-pill {
             display: inline-block;
-            border: 1px solid rgba(18, 38, 58, 0.14);
+            border: 1px solid rgba(17, 37, 63, 0.14);
             border-radius: 999px;
             padding: 0.28rem 0.65rem;
             margin: 0.2rem 0.35rem 0 0;
-            background: rgba(59, 102, 88, 0.08);
+            background: rgba(29, 93, 140, 0.08);
             color: var(--ink);
             font-size: 0.84rem;
         }
 
         .receipt-caption {
             color: var(--muted);
-            font-size: 0.88rem;
+            font-size: 0.9rem;
+            margin-top: 0.35rem;
         }
 
         .receipt-panel {
-            background: rgba(255,255,255,0.7);
+            background: rgba(255,255,255,0.78);
             border: 1px solid var(--border);
             border-radius: 20px;
             padding: 1rem;
@@ -375,6 +425,16 @@ def format_currency(value: float | None) -> str:
     if value is None:
         return "N/A"
     return f"${value:,.2f}"
+
+
+def display_ocr_method(method: str) -> str:
+    return METHOD_LABELS.get(method, method.replace("_", " ").title())
+
+
+def display_planning_version(version: str | None) -> str:
+    if version is None:
+        return "Not set"
+    return PLANNING_LABELS.get(version, version.upper())
 
 
 def pick_top_category(category_totals: dict[str, float]) -> tuple[str, float]:
@@ -404,6 +464,23 @@ def render_recommendation_card(title: str, issuer: str, value: float, eyebrow: s
             <div class="rec-eyebrow">{eyebrow}</div>
             <div class="rec-title">{title}</div>
             <div class="rec-meta">{issuer}<br>{format_currency(value)} estimated annual value</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_workflow_card(title: str, description: str, ocr_method: str, planning_version: str | None) -> None:
+    st.markdown(
+        f"""
+        <div class="workflow-card">
+            <div class="workflow-label">Active Workflow</div>
+            <div class="workflow-title">{title}</div>
+            <div class="workflow-meta">{description}</div>
+            <div class="workflow-pills">
+                <span class="workflow-pill">{display_ocr_method(ocr_method)}</span>
+                <span class="workflow-pill">{display_planning_version(planning_version)}</span>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -451,6 +528,8 @@ def analyze_receipts(
     receipt_results: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     temporary_paths: list[Path] = []
+    control_status = "skipped"
+    control_message: str | None = None
 
     progress = st.progress(0, text="Preparing receipt analysis...")
 
@@ -482,7 +561,7 @@ def analyze_receipts(
                     )
                     if reference_image_path is None:
                         raise FileNotFoundError(
-                            "No matching labeled reference receipt was found in the local dataset "
+                            "No matching structured reference receipt was found in the local dataset "
                             f"for uploaded file '{asset['name']}'."
                         )
                     pipeline_image_path = reference_image_path
@@ -515,14 +594,23 @@ def analyze_receipts(
         aggregate_recommendation = None
         if run_control:
             progress.progress(1.0, text="Researching card options and generating recommendation...")
-            recommender = get_recommender()
-            aggregate_recommendation = recommender.recommend_card(aggregate_profile)
+            try:
+                recommender = get_recommender()
+                aggregate_recommendation = recommender.recommend_card(aggregate_profile)
+                control_status = "succeeded"
+            except Exception as exc:
+                control_status = "failed"
+                control_message = str(exc)
+        else:
+            control_status = "skipped"
 
         return {
             "preset": preset,
             "receipt_results": receipt_results,
             "aggregate_profile": aggregate_profile,
             "aggregate_recommendation": aggregate_recommendation,
+            "control_status": control_status,
+            "control_message": control_message,
             "errors": errors,
         }
     finally:
@@ -538,7 +626,7 @@ def category_chart_frame(profile) -> pd.DataFrame:
         if amount > 0
     ]
     if not rows:
-        rows = [{"category": "No parsed spend", "amount": 0.0}]
+        rows = [{"category": "No detected spend", "amount": 0.0}]
     return pd.DataFrame(rows).set_index("category")
 
 
@@ -590,6 +678,8 @@ def build_chat_context(analysis: dict[str, Any]) -> str:
             if analysis["aggregate_recommendation"]
             else None
         ),
+        "control_status": analysis.get("control_status", "unknown"),
+        "control_message": analysis.get("control_message"),
         "receipts": receipt_context,
         "errors": analysis["errors"],
     }
@@ -626,35 +716,31 @@ def answer_pipeline_question(question: str, analysis: dict[str, Any]) -> str:
     return response.choices[0].message.content or "I couldn't generate an answer."
 
 
-def render_sidebar() -> tuple[str, bool, list[str]]:
-    st.sidebar.markdown("## Demo Controls")
+def render_sidebar() -> tuple[str, bool, list[str], Path]:
+    st.sidebar.markdown("## Analysis Settings")
     preset_name = st.sidebar.radio(
-        "Pipeline preset",
+        "Workflow",
         list(PIPELINE_PRESETS.keys()),
-        help="Choose which pipeline version powers the demo.",
+        help="Choose the pipeline you want to run on the uploaded receipts.",
     )
     run_control = st.sidebar.checkbox(
-        "Run card recommendation",
+        "Generate card recommendation",
         value=True,
-        help="Turn this off if you want to inspect perception and planning only.",
+        help="Turn this off if you only want OCR and spend classification results.",
     )
 
-    sample_dir = (
-        preferred_labeled_receipts_dir()
-        if PIPELINE_PRESETS[preset_name]["ocr_method"] == "labels"
-        else preferred_receipts_dir()
-    )
+    sample_dir = preferred_receipts_dir()
     sample_choices = [path.name for path in list_receipt_images(sample_dir)[:12]]
     selected_samples = st.sidebar.multiselect(
-        "Or load sample receipts",
+        "Use sample receipts",
         sample_choices,
-        help="Helpful for a quick in-class demo without uploading files.",
+        help="Quick way to demo the app without uploading your own files.",
     )
 
-    st.sidebar.markdown("## About")
+    st.sidebar.markdown("## How It Works")
     st.sidebar.caption(
-        "The control phase uses an LLM plus live web research tools. "
-        "Multiple receipts are merged into one combined spending profile before the final recommendation."
+        "Receipts are parsed into spend categories, then combined into one spending profile. "
+        "The control phase uses an LLM plus live web research to recommend a current credit card."
     )
     return preset_name, run_control, selected_samples, sample_dir
 
@@ -663,7 +749,7 @@ def render_receipt_preview(assets: list[dict[str, Any]]) -> None:
     if not assets:
         return
 
-    st.markdown("### Selected Receipts")
+    st.markdown("### Receipt Queue")
     columns = st.columns(min(3, len(assets)))
     for index, asset in enumerate(assets):
         column = columns[index % len(columns)]
@@ -685,33 +771,30 @@ def main() -> None:
     st.markdown(
         f"""
         <div class="hero-shell">
-            <div class="hero-kicker">Receipt-to-Card Presentation UI</div>
-            <h1>Receipt Card Advisor</h1>
+            <div class="hero-kicker">Spend Intelligence For Card Rewards</div>
+            <h1>Receipt Rewards Advisor</h1>
             <div class="hero-copy">
-                Upload one or more receipts, choose a pipeline version, and turn messy transaction text into a
-                credit card recommendation. This UI sits on top of the same perception, planning, and shared
-                LLM control pipeline used in the project notebook.
+                Upload one or more receipts, compare how each workflow interprets the spend, and generate a
+                credit card recommendation backed by the same perception, planning, and LLM-driven control
+                pipeline.
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        f"""
-        <div class="receipt-panel">
-            <strong>{preset_name}</strong><br>
-            {preset['description']}
-        </div>
-        """,
-        unsafe_allow_html=True,
+    render_workflow_card(
+        title=preset_name,
+        description=preset["description"],
+        ocr_method=preset["ocr_method"],
+        planning_version=preset["planning_version"],
     )
 
     uploaded_files = st.file_uploader(
-        "Upload receipt images",
+        "Upload receipts",
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=True,
-        help="You can upload one receipt or a small batch. The UI will merge all parsed spending into one final recommendation.",
+        help="Upload one receipt or a small batch. All parsed spend will be merged into a single recommendation profile.",
     )
 
     st.session_state["uploaded_file_map"] = {
@@ -722,10 +805,10 @@ def main() -> None:
     assets = build_input_assets(uploaded_files, selected_samples, sample_dir=sample_dir)
     render_receipt_preview(assets)
 
-    analyze_clicked = st.button("Analyze Receipts", type="primary", use_container_width=True)
+    analyze_clicked = st.button("Run Analysis", type="primary", use_container_width=True)
     if analyze_clicked:
         if not assets:
-            st.warning("Upload at least one receipt image or choose a sample receipt first.")
+            st.warning("Add at least one receipt image or choose a sample receipt to begin.")
         else:
             try:
                 with st.spinner("Running the pipeline..."):
@@ -738,50 +821,52 @@ def main() -> None:
                     {
                         "role": "assistant",
                         "content": (
-                            "The receipts are processed. Ask me about the spending profile, "
-                            "why a card was recommended, or where the pipeline struggled."
+                            "Your receipts are analyzed. Ask about the spending profile, "
+                            "recommendation logic, or where OCR quality may have affected the result."
                         ),
                     }
                 ]
             except Exception as exc:
-                st.error(f"Pipeline failed: {exc}")
+                st.error(f"The analysis could not be completed: {exc}")
 
     analysis = st.session_state.get("analysis")
     if not analysis:
-        st.info("Run the analysis to see the recommendation dashboard.")
+        st.info("Run an analysis to unlock the recommendation dashboard.")
         return
 
     aggregate_profile = analysis["aggregate_profile"]
     aggregate_recommendation = analysis["aggregate_recommendation"]
+    control_status = analysis.get("control_status", "unknown")
+    control_message = analysis.get("control_message")
     top_category, top_amount = pick_top_category(aggregate_profile.category_totals)
 
     metric_columns = st.columns(4)
     with metric_columns[0]:
         render_metric_card(
-            "Receipts processed",
+            "Receipts analyzed",
             str(len(analysis["receipt_results"])),
-            "Successful uploads included in the final profile.",
+            "Receipts successfully included in the final profile.",
         )
     with metric_columns[1]:
         render_metric_card(
-            "Total parsed spend",
+            "Detected spend",
             format_currency(aggregate_profile.total_amount),
-            "Combined total across all categorized line items.",
+            "Combined spend total parsed from all receipt line items.",
         )
     with metric_columns[2]:
         render_metric_card(
-            "Top category",
+            "Top spend category",
             top_category.title(),
-            f"{format_currency(top_amount)} in the strongest spending bucket.",
+            f"{format_currency(top_amount)} in the largest parsed category.",
         )
     with metric_columns[3]:
         render_metric_card(
-            "Pipeline",
+            "Workflow",
             preset_name,
-            f"{preset['ocr_method']} perception with planning {preset['planning_version']}.",
+            f"{display_ocr_method(preset['ocr_method'])} with {display_planning_version(preset['planning_version'])}.",
         )
 
-    dashboard_tabs = st.tabs(["Recommendation", "Receipts", "Chat"])
+    dashboard_tabs = st.tabs(["Recommendation", "Receipt Review", "Assistant"])
 
     with dashboard_tabs[0]:
         chart_col, rec_col = st.columns([1.05, 1.25], gap="large")
@@ -789,7 +874,7 @@ def main() -> None:
         with chart_col:
             st.markdown("### Spending Snapshot")
             st.bar_chart(category_chart_frame(aggregate_profile), height=360)
-            st.markdown("### Aggregate Category Totals")
+            st.markdown("### Category Totals")
             category_rows = [
                 {"category": category.title(), "amount": amount}
                 for category, amount in aggregate_profile.category_totals.items()
@@ -798,12 +883,25 @@ def main() -> None:
             if category_rows:
                 st.dataframe(pd.DataFrame(category_rows), use_container_width=True, hide_index=True)
             else:
-                st.info("No category totals were extracted from the uploaded receipts.")
+                st.info("No spend categories were extracted from this run.")
 
         with rec_col:
             st.markdown("### Final Recommendation")
+            if control_status == "failed":
+                st.warning(
+                    "Live card research did not finish in time for this run. "
+                    "Your OCR and spend-classification results are still available below."
+                )
+                if control_message:
+                    st.caption(control_message)
             if aggregate_recommendation is None:
-                st.info("Recommendation generation was skipped for this run.")
+                if control_status == "failed":
+                    st.info(
+                        "A final card recommendation could not be completed this time, "
+                        "but the parsed receipt analysis is still shown."
+                    )
+                else:
+                    st.info("Card recommendation was turned off for this run.")
             else:
                 primary_col, runner_col = st.columns(2)
                 with primary_col:
@@ -830,7 +928,7 @@ def main() -> None:
                         st.write(f"- {caveat}")
 
                 if aggregate_recommendation.card_rankings:
-                    st.markdown("#### Ranked Options")
+                    st.markdown("#### Ranked Card Options")
                     st.dataframe(
                         pd.DataFrame(aggregate_recommendation.card_rankings),
                         use_container_width=True,
@@ -853,7 +951,7 @@ def main() -> None:
             st.dataframe(pd.DataFrame(analysis["errors"]), use_container_width=True, hide_index=True)
 
     with dashboard_tabs[1]:
-        st.markdown("### Receipt-by-Receipt Breakdown")
+        st.markdown("### Receipt-by-Receipt Review")
         for index, result in enumerate(analysis["receipt_results"]):
             title = (
                 f"{result['display_name']} — "
@@ -864,12 +962,12 @@ def main() -> None:
                 with left_col:
                     st.image(result["image_bytes"], use_container_width=True)
                     st.caption(
-                        f"Perception: {result['pipeline']['perception_method']} | "
-                        f"Planning: {result['pipeline']['planning_version']}"
+                        f"OCR: {display_ocr_method(result['pipeline']['perception_method'])} | "
+                        f"Planning: {display_planning_version(result['pipeline']['planning_version'])}"
                     )
 
                 with right_col:
-                    st.markdown("#### Parsed Text")
+                    st.markdown("#### Parsed Receipt Text")
                     st.code(preview_text(result["ocr_result"].text, limit=3500), language=None)
                     if has_reference_labels(result["ocr_result"].image_path):
                         st.caption("Matching structured annotations are available for this receipt.")
@@ -883,7 +981,7 @@ def main() -> None:
                 if receipt_totals:
                     st.dataframe(pd.DataFrame(receipt_totals), use_container_width=True, hide_index=True)
                 else:
-                    st.info("No category totals were extracted for this receipt.")
+                    st.info("No spend categories were extracted for this receipt.")
 
                 st.markdown("#### Parsed Line Items")
                 items_df = line_items_frame(result["spending_profile"].line_items)
@@ -892,7 +990,7 @@ def main() -> None:
                 else:
                     st.dataframe(items_df, use_container_width=True, hide_index=True)
 
-                with st.expander("Raw structured output"):
+                with st.expander("Technical output"):
                     st.json(
                         {
                             "pipeline": result["pipeline"],
@@ -904,8 +1002,8 @@ def main() -> None:
     with dashboard_tabs[2]:
         st.markdown("### Ask About This Analysis")
         st.caption(
-            "This chat is grounded in the current run. It can explain the spend profile, "
-            "recommendation logic, and visible OCR issues."
+            "This assistant is grounded in the current run. It can explain the spend profile, "
+            "recommendation logic, and visible OCR limitations."
         )
 
         if "chat_messages" not in st.session_state:
@@ -920,7 +1018,7 @@ def main() -> None:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-        prompt = st.chat_input("Ask about the recommendation, the parsed spend, or OCR quality")
+        prompt = st.chat_input("Ask about the recommendation, spend profile, or OCR quality")
         if prompt:
             st.session_state["chat_messages"].append({"role": "user", "content": prompt})
             with st.chat_message("user"):
@@ -931,7 +1029,7 @@ def main() -> None:
                     try:
                         answer = answer_pipeline_question(prompt, analysis)
                     except Exception as exc:
-                        answer = f"Chat failed: {exc}"
+                        answer = f"The assistant could not answer this question: {exc}"
                     st.markdown(answer)
             st.session_state["chat_messages"].append({"role": "assistant", "content": answer})
 

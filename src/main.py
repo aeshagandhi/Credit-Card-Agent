@@ -31,14 +31,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ocr-method",
-        choices=["tesseract", "trocr", "paddleocr", "labels"],
+        choices=["tesseract", "paddleocr", "labels"],
         default=None,
         help="Perception method to use. Overrides the pipeline preset if provided.",
     )
     parser.add_argument(
         "--compare-ocr",
         action="store_true",
-        help="Run Tesseract, TrOCR, and PaddleOCR side by side on the same image.",
+        help="Run Tesseract, PaddleOCR, and structured reference text side by side on the same image.",
     )
     parser.add_argument(
         "--planning-version",
@@ -76,7 +76,7 @@ def main() -> None:
 
     perception = ReceiptPerception()
     if args.compare_ocr:
-        comparison_methods = ["tesseract", "trocr", "paddleocr"]
+        comparison_methods = ["tesseract", "paddleocr", "labels"]
         comparison_output: dict[str, object] = {
             "image_path": str(image_path),
             "results": {},

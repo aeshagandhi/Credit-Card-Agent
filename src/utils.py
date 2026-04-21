@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import hashlib
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
-from functools import lru_cache
 
 try:
     from control import CreditCardRecommender
@@ -22,20 +22,22 @@ def resolve_pipeline_settings(
     planning_version: str | None = None,
 ) -> tuple[str, str]:
     if pipeline_version == "v1":
-        perception_method = ocr_method or "tesseract"
-        selected_planning_version = planning_version or "v1"
-    elif pipeline_version == "v2":
-        perception_method = ocr_method or "paddleocr"
-        selected_planning_version = planning_version or "v2"
-    else:
-        perception_method = ocr_method or "tesseract"
-        selected_planning_version = planning_version or "v1"
-
-    return perception_method, selected_planning_version
+        return ocr_method or "tesseract", planning_version or "v1"
+    if pipeline_version == "v2":
+        return ocr_method or "paddleocr", planning_version or "v2"
+    return ocr_method or "tesseract", planning_version or "v1"
 
 
 def project_root() -> Path:
     return Path(__file__).resolve().parent.parent
+
+
+def receipt_dataset_images_dir() -> Path:
+    return project_root() / "data" / "receipt_dataset" / "ds0" / "img"
+
+
+def receipt_dataset_annotations_dir() -> Path:
+    return project_root() / "data" / "receipt_dataset" / "ds0" / "ann"
 
 
 def list_receipt_images(receipts_dir: str | Path) -> list[Path]:
@@ -48,82 +50,27 @@ def list_receipt_images(receipts_dir: str | Path) -> list[Path]:
 
 
 def preferred_receipts_dir() -> Path:
-    root = project_root()
-    candidate_dirs = [
-        root / "data" / "receipt_dataset" / "ds0" / "img",
-        root / "data" / "receipts_nano",
-        root / "data" / "receipts",
-    ]
-    for candidate_dir in candidate_dirs:
-        if candidate_dir.exists() and list_receipt_images(candidate_dir):
-            return candidate_dir
-    return candidate_dirs[0]
+    return receipt_dataset_images_dir()
 
 
 def preferred_labeled_receipts_dir() -> Path:
-    root = project_root()
-    candidate_dirs = [
-        root / "data" / "receipt_dataset" / "ds0" / "img",
-        root / "data" / "receipts",
-    ]
-    for candidate_dir in candidate_dirs:
-        if candidate_dir.exists() and list_receipt_images(candidate_dir):
-            return candidate_dir
-    return candidate_dirs[0]
-
-
-def labeled_receipt_dirs() -> list[Path]:
-    root = project_root()
-    return [
-        root / "data" / "receipt_dataset" / "ds0" / "img",
-        root / "data" / "receipts",
-    ]
-
-
-def labeled_annotation_dirs() -> list[Path]:
-    root = project_root()
-    return [
-        root / "data" / "receipt_dataset" / "ds0" / "ann",
-    ]
-
-
-def labeled_receipt_images() -> list[Path]:
-    paths: list[Path] = []
-    for candidate_dir in labeled_receipt_dirs():
-        if candidate_dir.exists():
-            paths.extend(list_receipt_images(candidate_dir))
-    deduplicated: dict[str, Path] = {str(path.resolve()): path for path in paths}
-    return list(deduplicated.values())
+    return receipt_dataset_images_dir()
 
 
 def has_reference_labels(image_path: str | Path) -> bool:
     image_path = Path(image_path)
-    root = project_root()
-    local_json_candidates = [
-        root / "data" / "receipt_dataset" / "ds0" / "ann" / f"{image_path.name}.json",
-        root / "data" / "receipt_dataset" / "ds0" / "ann" / f"{image_path.stem}.json",
+    annotations_dir = receipt_dataset_annotations_dir()
+    candidates = [
+        annotations_dir / f"{image_path.name}.json",
+        annotations_dir / f"{image_path.stem}.json",
     ]
-    if any(candidate.exists() for candidate in local_json_candidates):
-        return True
-
-    sroie_labels = root / "data" / "labels" / "sroie_labels.json"
-    if not sroie_labels.exists():
-        return False
-
-    try:
-        import json
-
-        index = json.loads(sroie_labels.read_text())
-    except Exception:
-        return False
-
-    return image_path.stem in index
+    return any(candidate.exists() for candidate in candidates)
 
 
 @lru_cache(maxsize=1)
 def _labeled_receipt_hash_index() -> dict[str, str]:
     index: dict[str, str] = {}
-    for image_path in labeled_receipt_images():
+    for image_path in list_receipt_images(receipt_dataset_images_dir()):
         try:
             digest = hashlib.sha256(image_path.read_bytes()).hexdigest()
         except OSError:
@@ -151,16 +98,14 @@ def resolve_reference_labeled_image(
                 return candidate
 
     if file_name:
-        for annotation_dir in labeled_annotation_dirs():
-            annotation_candidate = annotation_dir / f"{Path(file_name).name}.json"
-            if annotation_candidate.exists():
-                synthetic_image_path = annotation_dir.parent / "img" / Path(file_name).name
-                return synthetic_image_path
+        annotations_dir = receipt_dataset_annotations_dir()
+        annotation_candidate = annotations_dir / f"{Path(file_name).name}.json"
+        if annotation_candidate.exists():
+            return annotations_dir.parent / "img" / Path(file_name).name
 
-        for candidate_dir in labeled_receipt_dirs():
-            exact_match = candidate_dir / Path(file_name).name
-            if exact_match.exists() and has_reference_labels(exact_match):
-                return exact_match
+        exact_match = receipt_dataset_images_dir() / Path(file_name).name
+        if exact_match.exists() and has_reference_labels(exact_match):
+            return exact_match
 
     return None
 
@@ -233,7 +178,9 @@ def merge_spending_profiles(
     else:
         merchant = "Multiple merchants"
 
-    planner_versions = sorted({profile.planner_version for profile in profiles if profile.planner_version})
+    planner_versions = sorted(
+        {profile.planner_version for profile in profiles if profile.planner_version}
+    )
     merged_metadata = {
         "source_receipt_count": len(profiles),
         "source_receipts": source_names or [],

@@ -7,11 +7,9 @@ transformers<5
 torch==2.2.2
 openai
 python-dotenv
-datasets
 requests
 beautifulsoup4
 ddgs
-arxiv
 streamlit
 paddleocr
 paddlepaddle==3.0.0

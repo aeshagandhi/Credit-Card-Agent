@@ -74,7 +74,7 @@ class CreditCardRecommender:
     def __init__(
         self,
         model: str | None = None,
-        max_tool_rounds: int = 10,
+        max_tool_rounds: int = 6,
     ) -> None:
         load_dotenv(_find_dotenv_path(), override=False)
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -110,6 +110,8 @@ class CreditCardRecommender:
         ]
 
         used_tools: set[str] = set()
+        successful_tools: set[str] = set()
+        tool_failures: list[str] = []
         for _ in range(self.max_tool_rounds):
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -146,6 +148,10 @@ class CreditCardRecommender:
                         tool_name=tool_name,
                         raw_arguments=tool_call.function.arguments,
                     )
+                    if tool_name in {"web_search", "fetch_webpage"} and not tool_result.get("error"):
+                        successful_tools.add(tool_name)
+                    elif tool_name in {"web_search", "fetch_webpage"} and tool_result.get("error"):
+                        tool_failures.append(f"{tool_name}: {tool_result['error']}")
                     messages.append(
                         {
                             "role": "tool",
@@ -153,38 +159,59 @@ class CreditCardRecommender:
                             "content": json.dumps(tool_result),
                         }
                     )
+                if self._should_finalize_after_tool_errors(
+                    used_tools=used_tools,
+                    successful_tools=successful_tools,
+                    tool_failures=tool_failures,
+                ):
+                    return self._force_finalize_recommendation(
+                        messages=messages,
+                        used_tools=used_tools,
+                        successful_tools=successful_tools,
+                        tool_failures=tool_failures,
+                    )
                 continue
 
             content = message.content or "{}"
-            if not {"web_search", "fetch_webpage"}.issubset(used_tools):
+            if not self._attempted_live_research(used_tools):
                 messages.append(
                     {
                         "role": "system",
                         "content": (
-                            "You have not yet completed enough live research. "
-                            "Use web_search and fetch_webpage before finalizing your recommendation."
+                            "You have not yet attempted live research. "
+                            "Use web_search or fetch_webpage before finalizing your recommendation."
                         ),
                     }
                 )
                 continue
 
-            try:
-                payload = json.loads(content)
-            except json.JSONDecodeError:
+            payload = self._parse_json_payload(content)
+            if payload is None:
                 messages.append(
                     {
                         "role": "system",
                         "content": (
                             "Your last response was not valid JSON. "
-                            "Return the same recommendation again as valid JSON only."
+                            "Return the same recommendation again as valid JSON only. "
+                            "If a web tool timed out or failed, finalize with the evidence you already have "
+                            "and mention the limitation in caveats."
                         ),
                     }
                 )
                 continue
-            return self._normalize_payload(payload)
+            recommendation = self._normalize_payload(payload)
+            return self._attach_research_caveats(
+                recommendation,
+                used_tools=used_tools,
+                successful_tools=successful_tools,
+                tool_failures=tool_failures,
+            )
 
-        raise RuntimeError(
-            "The control agent did not finish within the allowed tool rounds."
+        return self._force_finalize_recommendation(
+            messages=messages,
+            used_tools=used_tools,
+            successful_tools=successful_tools,
+            tool_failures=tool_failures,
         )
 
     def _system_prompt(self) -> str:
@@ -271,6 +298,132 @@ class CreditCardRecommender:
                 },
             },
             indent=2,
+        )
+
+    def _attempted_live_research(self, used_tools: set[str]) -> bool:
+        return bool({"web_search", "fetch_webpage"} & used_tools)
+
+    def _parse_json_payload(self, content: str) -> dict[str, object] | None:
+        cleaned = content.strip()
+        if not cleaned:
+            return None
+
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].strip()
+
+        try:
+            payload = json.loads(cleaned)
+            return payload if isinstance(payload, dict) else None
+        except json.JSONDecodeError:
+            pass
+
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+
+        try:
+            payload = json.loads(cleaned[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _attach_research_caveats(
+        self,
+        recommendation: CardRecommendation,
+        used_tools: set[str],
+        successful_tools: set[str],
+        tool_failures: list[str],
+    ) -> CardRecommendation:
+        caveats = [str(item) for item in recommendation.caveats]
+
+        if self._attempted_live_research(used_tools) and not successful_tools:
+            caveats.append(
+                "Live card research tools were unavailable in this run, so this recommendation is best-effort."
+            )
+        elif tool_failures:
+            summarized_failures = "; ".join(tool_failures[:2])
+            caveats.append(
+                f"Some live research tools were only partially successful: {summarized_failures}"
+            )
+
+        recommendation.caveats = list(dict.fromkeys(caveats))
+        return recommendation
+
+    def _should_finalize_after_tool_errors(
+        self,
+        used_tools: set[str],
+        successful_tools: set[str],
+        tool_failures: list[str],
+    ) -> bool:
+        if not self._attempted_live_research(used_tools):
+            return False
+        if not successful_tools and len(tool_failures) >= 2:
+            return True
+        if successful_tools and len(tool_failures) >= 4:
+            return True
+        return False
+
+    def _force_finalize_recommendation(
+        self,
+        messages: list[dict[str, object]],
+        used_tools: set[str],
+        successful_tools: set[str],
+        tool_failures: list[str],
+    ) -> CardRecommendation:
+        final_messages = list(messages)
+        final_messages.append(
+            {
+                "role": "system",
+                "content": self._finalize_prompt(
+                    used_tools=used_tools,
+                    successful_tools=successful_tools,
+                    tool_failures=tool_failures,
+                ),
+            }
+        )
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            temperature=0.1,
+            messages=final_messages,
+            tool_choice="none",
+        )
+        content = response.choices[0].message.content or ""
+        payload = self._parse_json_payload(content)
+        if payload is None:
+            failure_summary = "; ".join(tool_failures[:3]) or "No valid JSON response was returned."
+            raise RuntimeError(
+                "The control agent could not finalize a recommendation. "
+                f"Last known issue: {failure_summary}"
+            )
+
+        recommendation = self._normalize_payload(payload)
+        return self._attach_research_caveats(
+            recommendation,
+            used_tools=used_tools,
+            successful_tools=successful_tools,
+            tool_failures=tool_failures,
+        )
+
+    def _finalize_prompt(
+        self,
+        used_tools: set[str],
+        successful_tools: set[str],
+        tool_failures: list[str],
+    ) -> str:
+        attempted = sorted({"web_search", "fetch_webpage"} & used_tools)
+        successful = sorted({"web_search", "fetch_webpage"} & successful_tools)
+        failure_summary = "; ".join(tool_failures[:3]) if tool_failures else "none"
+        return (
+            "Stop using tools and finalize now with the best evidence already present in the conversation. "
+            f"Attempted live research tools: {attempted or ['none']}. "
+            f"Successful live research tools: {successful or ['none']}. "
+            f"Recent tool failures: {failure_summary}. "
+            "Return valid JSON only using the required schema. "
+            "If live research was incomplete, mention that explicitly in caveats."
         )
 
     def _execute_tool_call(self, tool_name: str, raw_arguments: str) -> dict[str, object]:

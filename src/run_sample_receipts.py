@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ocr-method",
-        choices=["tesseract", "trocr", "paddleocr", "labels"],
+        choices=["tesseract", "paddleocr", "labels"],
         default=None,
         help="Perception method to use. Overrides the pipeline preset if provided.",
     )

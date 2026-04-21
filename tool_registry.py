@@ -13,7 +13,6 @@ import datetime
 import requests
 from bs4 import BeautifulSoup
 from ddgs import DDGS
-import arxiv
 
 
 TOOL_SCHEMAS = [
@@ -56,35 +55,6 @@ TOOL_SCHEMAS = [
                 }
             },
             "required": ["url"]
-        }
-    },
-    {
-        "name": "arxiv_search",
-        "description": (
-            "Search ArXiv for academic papers. Returns papers with title, "
-            "authors, abstract, publication date, and ArXiv URL. "
-            "Use for scientific, ML, or technical research queries."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The academic search query."
-                },
-                "num_results": {
-                    "type": "integer",
-                    "description": "Number of papers to return (default 5, max 10).",
-                    "default": 5
-                },
-                "sort_by": {
-                    "type": "string",
-                    "enum": ["relevance", "lastUpdatedDate", "submittedDate"],
-                    "description": "Sort order for results.",
-                    "default": "relevance"
-                }
-            },
-            "required": ["query"]
         }
     },
     {
@@ -144,7 +114,7 @@ def tool_web_search(query: str, num_results: int = 5) -> dict:
     """DuckDuckGo web search."""
     num_results = min(int(num_results), 10)
     try:
-        with DDGS() as ddgs:
+        with DDGS(timeout=6) as ddgs:
             results = list(ddgs.text(query, max_results=num_results))
         if not results:
             return {"error": "No results found.", "results": []}
@@ -171,7 +141,7 @@ def tool_fetch_webpage(url: str) -> dict:
                 "Chrome/120.0.0.0 Safari/537.36"
             )
         }
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = requests.get(url, headers=headers, timeout=(4, 8))
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         # Remove script/style/nav/footer noise
@@ -190,39 +160,6 @@ def tool_fetch_webpage(url: str) -> dict:
         return {"url": url, "title": title, "content": text, "word_count": len(words)}
     except Exception as e:
         return {"error": str(e), "url": url, "content": ""}
-
-
-def tool_arxiv_search(query: str, num_results: int = 5, sort_by: str = "relevance") -> dict:
-    """Search ArXiv for papers."""
-    num_results = min(int(num_results), 10)
-    sort_map = {
-        "relevance": arxiv.SortCriterion.Relevance,
-        "lastUpdatedDate": arxiv.SortCriterion.LastUpdatedDate,
-        "submittedDate": arxiv.SortCriterion.SubmittedDate,
-    }
-    criterion = sort_map.get(sort_by, arxiv.SortCriterion.Relevance)
-    try:
-        client = arxiv.Client()
-        search = arxiv.Search(
-            query=query,
-            max_results=num_results,
-            sort_by=criterion
-        )
-        papers = []
-        for result in client.results(search):
-            papers.append({
-                "title": result.title,
-                "authors": [a.name for a in result.authors[:5]],
-                "abstract": result.summary[:500] + ("..." if len(result.summary) > 500 else ""),
-                "published": result.published.strftime("%Y-%m-%d"),
-                "url": result.entry_id,
-                "pdf_url": result.pdf_url
-            })
-        return {"query": query, "results": papers, "count": len(papers)}
-    except Exception as e:
-        return {"error": str(e), "results": []}
-
-
 def tool_calculator(expression: str) -> dict:
     """Safe math expression evaluator."""
     allowed_names = {
@@ -265,8 +202,6 @@ def execute_tool(tool_name: str, tool_input: dict) -> str:
             result = tool_web_search(**tool_input)
         elif tool_name == "fetch_webpage":
             result = tool_fetch_webpage(**tool_input)
-        elif tool_name == "arxiv_search":
-            result = tool_arxiv_search(**tool_input)
         elif tool_name == "calculator":
             result = tool_calculator(**tool_input)
         elif tool_name == "save_research_note":
