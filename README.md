@@ -29,7 +29,7 @@ The architecture is intentionally set up so that both project versions share the
 The repo also keeps two comparison modes:
 
 - `Experimental: TrOCR`: a DL OCR comparison path that is still useful for side-by-side evaluation
-- `Labels Reference`: dataset-provided text reconstructed from annotations so we can compare downstream behavior without OCR noise
+- `Curated Receipt Text`: dataset-provided text reconstructed from annotations so we can compare downstream behavior without OCR noise
 
 In the current codebase, `Version 2` defaults to `paddleocr + planning v2`.
 
@@ -360,6 +360,7 @@ Detailed decision logic:
 9. Take the top-scoring category and its score
 10. If the score is below the threshold, fall back to the merchant default or `other`
 11. Store both the chosen category and the model score in the line item
+12. If summary lines such as tax, tip, fees, or discounts are detected, allocate the spend-relevant ones back into category totals while still excluding duplicate lines such as subtotal, total, payment, and change
 
 Important implementation details:
 
@@ -368,6 +369,7 @@ Important implementation details:
 - the current score threshold is `0.35`
 - if an API key is configured, the default receipt-structure parser model is `gpt-4o-mini`
 - the fallback heuristic parser can pair amount-only lines with the preceding item description, which helps avoid counting `Subtotal`, `Tax`, and `Total` as purchased items
+- spend-relevant summary lines like `Tax`, `Tip`, `Service Charge`, `Fees`, and `Discount` can now be handled separately from item lines so the parsed spend total is closer to the actual charged amount
 
 This is more proposal-aligned than pure keyword rules because it can make semantic judgments about item names, even when the wording is not an exact keyword match.
 
@@ -493,7 +495,7 @@ Current presets in the UI:
 - `Version 1: Classical`
 - `Version 2: Deep Learning`
 - `Experimental: TrOCR`
-- `Labels Reference`
+- `Curated Receipt Text`
 
 The UI also now includes a light-theme configuration in [.streamlit/config.toml](.streamlit/config.toml) so it remains readable even if the computer itself is using dark mode.
 

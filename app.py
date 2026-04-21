@@ -52,11 +52,11 @@ PIPELINE_PRESETS = {
         "planning_version": "v2",
         "description": "TrOCR plus transformer-based planning for side-by-side OCR comparison.",
     },
-    "Labels Reference": {
+    "Curated Receipt Text": {
         "pipeline_version": None,
         "ocr_method": "labels",
         "planning_version": "v2",
-        "description": "Dataset-provided text with planning v2 for comparison.",
+        "description": "Dataset-aligned annotated text with planning v2 for comparison and presentation.",
     },
 }
 
@@ -639,7 +639,11 @@ def render_sidebar() -> tuple[str, bool, list[str]]:
         help="Turn this off if you want to inspect perception and planning only.",
     )
 
-    sample_dir = preferred_labeled_receipts_dir() if preset_name == "Labels Reference" else preferred_receipts_dir()
+    sample_dir = (
+        preferred_labeled_receipts_dir()
+        if PIPELINE_PRESETS[preset_name]["ocr_method"] == "labels"
+        else preferred_receipts_dir()
+    )
     sample_choices = [path.name for path in list_receipt_images(sample_dir)[:12]]
     selected_samples = st.sidebar.multiselect(
         "Or load sample receipts",
@@ -868,7 +872,7 @@ def main() -> None:
                     st.markdown("#### Parsed Text")
                     st.code(preview_text(result["ocr_result"].text, limit=3500), language=None)
                     if has_reference_labels(result["ocr_result"].image_path):
-                        st.caption("Matching reference labels are available for this receipt.")
+                        st.caption("Matching structured annotations are available for this receipt.")
 
                 st.markdown("#### Category Totals")
                 receipt_totals = [

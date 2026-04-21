@@ -317,7 +317,7 @@ class ReceiptPlanner:
     def build_spending_profile_v2(self, receipt_text: str) -> SpendingProfile:
         lines = self._normalize_lines(receipt_text)
         merchant = self._detect_merchant(lines)
-        merchant, candidates, parser_metadata = self._candidate_lines_v2(
+        merchant, candidates, summary_lines, parser_metadata = self._candidate_lines_v2(
             receipt_text=receipt_text,
             lines=lines,
             merchant=merchant,
@@ -364,6 +364,13 @@ class ReceiptPlanner:
             )
             category_totals[category] += candidate["amount"]
 
+        summary_adjustment_metadata = self._apply_summary_line_adjustments(
+            category_totals=category_totals,
+            line_items=line_items,
+            summary_lines=summary_lines,
+            default_category=default_category,
+        )
+
         return self._build_profile(
             merchant=merchant,
             category_totals=category_totals,
@@ -376,6 +383,7 @@ class ReceiptPlanner:
                 "score_threshold": self.v2_score_threshold,
                 "merchant_default_category": default_category,
                 **parser_metadata,
+                **summary_adjustment_metadata,
             },
         )
 
@@ -418,13 +426,14 @@ class ReceiptPlanner:
         receipt_text: str,
         lines: list[str],
         merchant: str | None,
-    ) -> tuple[str | None, list[dict[str, Any]], dict[str, Any]]:
+    ) -> tuple[str | None, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
         parsed_receipt = self._parse_receipt_structure_with_llm(receipt_text, merchant)
         if parsed_receipt is not None and parsed_receipt["items"]:
             resolved_merchant = parsed_receipt["merchant"] or merchant
             return (
                 resolved_merchant,
                 parsed_receipt["items"],
+                parsed_receipt["summary_lines"],
                 {
                     "receipt_parser": "llm_structured_parser",
                     "receipt_parser_model": self.llm_receipt_parser_model,
@@ -435,13 +444,15 @@ class ReceiptPlanner:
             )
 
         heuristic_candidates = self._candidate_lines(lines)
+        heuristic_summary_lines = self._extract_summary_lines_heuristic(lines)
         return (
             merchant,
             heuristic_candidates,
+            heuristic_summary_lines,
             {
                 "receipt_parser": "heuristic_regex_parser",
                 "parsed_item_count": len(heuristic_candidates),
-                "parsed_summary_lines": [],
+                "parsed_summary_lines": heuristic_summary_lines[:8],
                 "ignored_line_count": 0,
             },
         )
@@ -580,6 +591,68 @@ class ReceiptPlanner:
             "ignored_lines": [str(line).strip() for line in ignored_lines if str(line).strip()],
         }
 
+    def _apply_summary_line_adjustments(
+        self,
+        category_totals: dict[str, float],
+        line_items: list[LineItem],
+        summary_lines: list[dict[str, Any]],
+        default_category: str | None,
+    ) -> dict[str, Any]:
+        applied_adjustments: list[dict[str, Any]] = []
+        skipped_summary_lines: list[dict[str, Any]] = []
+
+        for summary_line in summary_lines:
+            description = str(summary_line.get("description", "")).strip() or "summary_line"
+            amount = self._coerce_amount(summary_line.get("amount"))
+            line_type = str(summary_line.get("line_type", "other_summary")).strip() or "other_summary"
+
+            if amount is None:
+                skipped_summary_lines.append(
+                    {"description": description, "line_type": line_type, "reason": "missing_amount"}
+                )
+                continue
+
+            if not self._summary_line_counts_toward_spend(line_type):
+                skipped_summary_lines.append(
+                    {"description": description, "line_type": line_type, "reason": "non_spend_summary"}
+                )
+                continue
+
+            signed_amount = self._signed_summary_amount(amount, line_type, description)
+            if signed_amount == 0:
+                continue
+
+            allocation = self._allocate_summary_amount(
+                amount=signed_amount,
+                category_totals=category_totals,
+                default_category=default_category,
+            )
+
+            for index, (category, allocated_amount) in enumerate(allocation.items()):
+                category_totals[category] += allocated_amount
+                description_suffix = "allocated" if len(allocation) > 1 else "included"
+                line_items.append(
+                    LineItem(
+                        description=f"{description} [{description_suffix}]",
+                        amount=allocated_amount,
+                        category=category,
+                        score=None,
+                    )
+                )
+                applied_adjustments.append(
+                    {
+                        "description": description,
+                        "line_type": line_type,
+                        "category": category,
+                        "amount": allocated_amount,
+                    }
+                )
+
+        return {
+            "applied_summary_adjustments": applied_adjustments[:12],
+            "skipped_summary_lines": skipped_summary_lines[:12],
+        }
+
     def _classify_candidate_lines_v2(
         self,
         candidates: list[dict[str, Any]],
@@ -688,6 +761,84 @@ class ReceiptPlanner:
         if local_model_dir.exists() and any(local_model_dir.iterdir()):
             return str(local_model_dir)
         return self.DEFAULT_V2_MODEL
+
+    def _extract_summary_lines_heuristic(self, lines: list[str]) -> list[dict[str, Any]]:
+        summary_lines: list[dict[str, Any]] = []
+        used_indices: set[int] = set()
+
+        for index, line in enumerate(lines):
+            if index in used_indices:
+                continue
+
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            description = self._strip_price_from_line(stripped)
+            amount = self._extract_amount(stripped)
+            source_line = stripped
+
+            if description and self._is_summary_line(description):
+                if amount is None and index + 1 < len(lines) and self._is_amount_only_line(lines[index + 1]):
+                    amount = self._extract_amount(lines[index + 1])
+                    source_line = f"{stripped} | {lines[index + 1].strip()}"
+                    used_indices.add(index + 1)
+
+                summary_lines.append(
+                    {
+                        "description": description,
+                        "amount": amount,
+                        "line_type": self._classify_summary_line_type(description),
+                        "source_line": source_line,
+                    }
+                )
+                used_indices.add(index)
+
+        return summary_lines
+
+    def _summary_line_counts_toward_spend(self, line_type: str) -> bool:
+        return line_type in {"tax", "tip", "discount", "fee", "other_summary"}
+
+    def _signed_summary_amount(self, amount: float, line_type: str, description: str) -> float:
+        normalized_description = description.lower()
+        if line_type == "discount" or "discount" in normalized_description:
+            return -abs(amount)
+        return abs(amount)
+
+    def _allocate_summary_amount(
+        self,
+        amount: float,
+        category_totals: dict[str, float],
+        default_category: str | None,
+    ) -> dict[str, float]:
+        positive_categories = {
+            category: value
+            for category, value in category_totals.items()
+            if value > 0 and category != "other"
+        }
+        if not positive_categories:
+            positive_categories = {
+                category: value
+                for category, value in category_totals.items()
+                if value > 0
+            }
+
+        if positive_categories:
+            total = sum(positive_categories.values())
+            categories = list(positive_categories.items())
+            allocation: dict[str, float] = {}
+            running_total = 0.0
+            for index, (category, value) in enumerate(categories):
+                if index == len(categories) - 1:
+                    allocated = round(amount - running_total, 2)
+                else:
+                    allocated = round(amount * (value / total), 2)
+                    running_total += allocated
+                allocation[category] = allocated
+            return allocation
+
+        target_category = default_category or "other"
+        return {target_category: round(amount, 2)}
 
     def _build_profile(
         self,
@@ -813,6 +964,26 @@ class ReceiptPlanner:
     def _is_summary_line(self, description: str) -> bool:
         normalized = description.lower()
         return any(keyword in normalized for keyword in SUMMARY_LINE_KEYWORDS)
+
+    def _classify_summary_line_type(self, description: str) -> str:
+        normalized = description.lower()
+        if "subtotal" in normalized or "sub total" in normalized:
+            return "subtotal"
+        if "tax" in normalized or "vat" in normalized:
+            return "tax"
+        if "tip" in normalized or "gratuity" in normalized:
+            return "tip"
+        if "discount" in normalized:
+            return "discount"
+        if "service charge" in normalized or "rounding" in normalized or "fee" in normalized:
+            return "fee"
+        if "change" in normalized:
+            return "change"
+        if any(keyword in normalized for keyword in ["visa", "mastercard", "debit", "credit", "cash", "payment", "tender"]):
+            return "payment"
+        if "total" in normalized or "balance" in normalized or "amount due" in normalized:
+            return "total"
+        return "other_summary"
 
     def _pair_amount_only_line(self, lines: list[str], index: int) -> str | None:
         current_line = lines[index]

@@ -80,6 +80,13 @@ def labeled_receipt_dirs() -> list[Path]:
     ]
 
 
+def labeled_annotation_dirs() -> list[Path]:
+    root = project_root()
+    return [
+        root / "data" / "receipt_dataset" / "ds0" / "ann",
+    ]
+
+
 def labeled_receipt_images() -> list[Path]:
     paths: list[Path] = []
     for candidate_dir in labeled_receipt_dirs():
@@ -144,6 +151,12 @@ def resolve_reference_labeled_image(
                 return candidate
 
     if file_name:
+        for annotation_dir in labeled_annotation_dirs():
+            annotation_candidate = annotation_dir / f"{Path(file_name).name}.json"
+            if annotation_candidate.exists():
+                synthetic_image_path = annotation_dir.parent / "img" / Path(file_name).name
+                return synthetic_image_path
+
         for candidate_dir in labeled_receipt_dirs():
             exact_match = candidate_dir / Path(file_name).name
             if exact_match.exists() and has_reference_labels(exact_match):
