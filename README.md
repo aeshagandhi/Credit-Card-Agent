@@ -1,4 +1,7 @@
 # Receipt Rewards Advisor
+Authors: Aesha Gandhi, Pranshul Bhatnagar, Gaurav Law
+
+[Video Walkthrough](https://youtu.be/q-19Q_HRIhE)
 
 Receipt Rewards Advisor is a project that turns receipt images into a spending profile and then recommends a credit card using an LLM-driven control phase.
 
