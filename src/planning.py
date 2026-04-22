@@ -86,10 +86,59 @@ CATEGORY_KEYWORDS = {
         "latte",
         "restaurant",
         "sandwich",
+        "fountain soda",
         "fries",
         "taco",
         "meal",
         "cafe",
+        "sushi",
+        "sashimi",
+        "roll",
+        "ramen",
+        "noodle",
+        "pho",
+        "burrito",
+        "quesadilla",
+        "nachos",
+        "steak",
+        "bbq",
+        "barbecue",
+        "wings",
+        "salad",
+        "pasta",
+        "dumpling",
+        "fried rice",
+        "teriyaki",
+        "margarita",
+        "cocktail",
+        "beer",
+        "ale",
+        "lager",
+        "ipa",
+        "stout",
+        "wine",
+        "tequila",
+        "vodka",
+        "whiskey",
+        "bud light",
+        "soda",
+        "cola",
+        "iced tea",
+        "espresso",
+        "cappuccino",
+        "mocha",
+        "chicken",
+        "crab",
+        "shrimp",
+        "steak",
+        "cheesesteak",
+        "cheese steak",
+        "burger",
+        "tots",
+        "appetizer",
+        "entree",
+        "take-out",
+        "takeout",
     ],
     "travel": [
         "hotel",
@@ -142,6 +191,103 @@ CATEGORY_KEYWORDS = {
 }
 
 
+CATEGORY_ALIASES = {
+    "grocery": "groceries",
+    "supermarket": "groceries",
+    "food": "dining",
+    "food dining": "dining",
+    "food and dining": "dining",
+    "restaurant": "dining",
+    "restaurants": "dining",
+    "dine": "dining",
+    "cafe": "dining",
+    "cafes": "dining",
+    "bar": "dining",
+    "drinks": "dining",
+    "beverage": "dining",
+    "beverages": "dining",
+    "transport": "travel",
+    "transportation": "travel",
+    "fuel": "gas",
+    "medical": "healthcare",
+    "pharmacy": "healthcare",
+    "retail": "shopping",
+}
+
+
+MERCHANT_CATEGORY_HINTS = {
+    "dining": [
+        "restaurant",
+        "cafe",
+        "coffee",
+        "espresso",
+        "grill",
+        "bar",
+        "sports bar",
+        "pub",
+        "tavern",
+        "bistro",
+        "diner",
+        "eatery",
+        "kitchen",
+        "bakery",
+        "pizzeria",
+        "pizza",
+        "sushi",
+        "ramen",
+        "pho",
+        "taqueria",
+        "taco",
+        "bbq",
+        "barbecue",
+        "burger",
+        "wings",
+        "steakhouse",
+        "noodle",
+        "brew",
+        "brewing",
+        "brewery",
+        "cantina",
+        "deli",
+        "donut",
+    ],
+    "groceries": [
+        "market",
+        "grocery",
+        "grocer",
+        "supermarket",
+        "foods",
+        "food mart",
+        "fresh market",
+        "produce",
+    ],
+    "travel": [
+        "hotel",
+        "inn",
+        "suites",
+        "resort",
+        "airlines",
+        "airways",
+        "airport",
+        "motel",
+    ],
+    "gas": [
+        "gas station",
+        "fuel",
+        "petrol",
+        "service station",
+    ],
+    "healthcare": [
+        "pharmacy",
+        "clinic",
+        "medical",
+        "hospital",
+        "dental",
+        "vision",
+    ],
+}
+
+
 CATEGORY_DESCRIPTIONS = {
     "groceries": "food staples, supermarket items, household groceries, produce, packaged food",
     "dining": "restaurants, cafes, coffee shops, takeout, fast food, prepared meals",
@@ -159,6 +305,13 @@ SUMMARY_LINE_KEYWORDS = [
     "sub total",
     "total",
     "total due",
+    "grand total",
+    "check total",
+    "take-out total",
+    "takeout total",
+    "transaction amount",
+    "sale amount",
+    "tottal",
     "tax",
     "vat",
     "balance",
@@ -367,7 +520,7 @@ class ReceiptPlanner:
                 uncategorized_lines=[],
                 planner_version="v2",
                 planner_metadata={
-                    "classification_method": "transformer_semantic_classifier",
+                    "classification_method": "llm_item_categories_or_transformer_classifier",
                     "model_name_or_path": self.v2_model_name_or_path,
                     "score_threshold": self.v2_score_threshold,
                     "reported_total_source_line": reported_total_line,
@@ -411,7 +564,7 @@ class ReceiptPlanner:
             uncategorized_lines=uncategorized_lines,
             planner_version="v2",
             planner_metadata={
-                "classification_method": "transformer_semantic_classifier",
+                "classification_method": "llm_item_categories_or_transformer_classifier",
                 "model_name_or_path": self.v2_model_name_or_path,
                 "score_threshold": self.v2_score_threshold,
                 "merchant_default_category": default_category,
@@ -472,6 +625,9 @@ class ReceiptPlanner:
                     "receipt_parser": "llm_structured_parser",
                     "receipt_parser_model": self.llm_receipt_parser_model,
                     "parsed_item_count": len(parsed_receipt["items"]),
+                    "llm_item_category_count": len(
+                        [item for item in parsed_receipt["items"] if item.get("llm_category")]
+                    ),
                     "parsed_summary_lines": parsed_receipt["summary_lines"][:8],
                     "ignored_line_count": len(parsed_receipt["ignored_lines"]),
                 },
@@ -518,6 +674,7 @@ class ReceiptPlanner:
                             "OCR text may be noisy or split across lines. "
                             "Return JSON only with these keys exactly: merchant, purchase_items, summary_lines, ignored_lines. "
                             "purchase_items must include only true purchased items or services that should count toward spend. "
+                            "For each purchase item, also assign one category using exactly one of these labels: groceries, dining, travel, gas, entertainment, shopping, healthcare, other. "
                             "summary_lines must include totals, subtotals, taxes, fees, discounts, tips, payment lines, and change lines. "
                             "If a line is clearly metadata such as date, time, cashier, table, receipt number, or phone number, put it in ignored_lines. "
                             "Amounts must be numbers, not strings."
@@ -535,6 +692,7 @@ class ReceiptPlanner:
                                         {
                                             "description": "string",
                                             "amount": "number",
+                                            "category": "groceries|dining|travel|gas|entertainment|shopping|healthcare|other",
                                             "source_line": "string",
                                         }
                                     ],
@@ -590,6 +748,7 @@ class ReceiptPlanner:
 
             description = str(item.get("description", "")).strip()
             amount = self._coerce_amount(item.get("amount"))
+            llm_category = self._normalize_category_value(item.get("category"))
             source_line = str(item.get("source_line", description)).strip() or description
 
             if not description or amount is None or amount <= 0:
@@ -602,6 +761,7 @@ class ReceiptPlanner:
                     "original_line": source_line,
                     "description": description,
                     "amount": amount,
+                    "llm_category": llm_category,
                 }
             )
 
@@ -708,6 +868,16 @@ class ReceiptPlanner:
 
         predictions: list[dict[str, Any]] = []
         for result, candidate in zip(raw_results, candidates):
+            llm_category = self._normalize_category_value(candidate.get("llm_category"))
+            if llm_category is not None and llm_category != "other":
+                predictions.append(
+                    {
+                        "category": llm_category,
+                        "score": 1.0,
+                    }
+                )
+                continue
+
             ordered_labels = [str(label).lower() for label in result.get("labels", [])]
             ordered_scores = [float(score) for score in result.get("scores", [])]
 
@@ -719,7 +889,13 @@ class ReceiptPlanner:
                 score = 0.0
 
             if score < self.v2_score_threshold:
-                fallback = default_category or self._lookup_merchant_category(merchant) or "other"
+                fallback = self._categorize_line_v1(
+                    description=candidate["description"],
+                    merchant=merchant,
+                    default_category=default_category,
+                )
+                if fallback == "other":
+                    fallback = default_category or self._lookup_merchant_category(merchant) or "other"
                 category = fallback
 
             if not candidate["description"]:
@@ -733,6 +909,24 @@ class ReceiptPlanner:
             )
 
         return predictions
+
+    def _normalize_category_value(self, value: Any) -> str | None:
+        if value is None:
+            return None
+
+        normalized = str(value).strip().lower()
+        if not normalized:
+            return None
+
+        normalized = normalized.replace("&", "and")
+        normalized = re.sub(r"[^a-z\s]", "", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        if not normalized:
+            return None
+
+        if normalized in CATEGORIES:
+            return normalized
+        return CATEGORY_ALIASES.get(normalized)
 
     def _semantic_default_category(self, merchant: str | None) -> str | None:
         if not merchant:
@@ -921,6 +1115,16 @@ class ReceiptPlanner:
         for merchant_key, category in self.merchant_lookup.items():
             if merchant_key in normalized:
                 return category
+        return self._infer_category_from_merchant_hints(normalized)
+
+    def _infer_category_from_merchant_hints(self, normalized_merchant: str) -> str | None:
+        if not normalized_merchant:
+            return None
+
+        for category, hints in MERCHANT_CATEGORY_HINTS.items():
+            for hint in hints:
+                if hint in normalized_merchant:
+                    return category
         return None
 
     def _categorize_line_v1(
@@ -1017,7 +1221,19 @@ class ReceiptPlanner:
             return "change"
         if any(keyword in normalized for keyword in ["visa", "mastercard", "debit", "credit", "cash", "payment", "tender"]):
             return "payment"
-        if "total" in normalized or "balance" in normalized or "amount due" in normalized:
+        if any(
+            keyword in normalized
+            for keyword in [
+                "total",
+                "balance",
+                "amount due",
+                "transaction amount",
+                "sale amount",
+                "grand total",
+                "check total",
+                "tottal",
+            ]
+        ):
             return "total"
         return "other_summary"
 

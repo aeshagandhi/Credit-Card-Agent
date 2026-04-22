@@ -42,6 +42,7 @@ Older dataset paths and fallback logic have been removed from the repo.
 Credit-Card-Agent/
 ├── app.py
 ├── README.md
+├── receipt-rewards-technical-flowchart.html
 ├── requirements.txt
 ├── tool_registry.py
 ├── data/
@@ -52,6 +53,7 @@ Credit-Card-Agent/
 ├── models/
 │   └── planning_v1.pkl
 ├── notebooks/
+│   ├── evaluation.ipynb
 │   ├── execution_notebook.ipynb
 │   ├── perception_experiments.ipynb
 │   └── planning_experiments.ipynb
@@ -135,6 +137,8 @@ It takes receipt text and outputs a `SpendingProfile` with:
 
 - merchant name
 - category totals
+- reported receipt total when available
+- displayed receipt total used in the UI
 - parsed line items
 - planner metadata
 
@@ -147,8 +151,9 @@ High-level logic:
 1. Clean the OCR text into lines
 2. Detect the merchant from header-style text
 3. Extract candidate item lines and prices
-4. Use the classical classifier to assign categories
-5. Sum totals per category
+4. Detect summary lines such as tax and total
+5. Use merchant lookup plus keyword heuristics to assign categories
+6. Sum totals per category and keep the receipt-reported total when found
 
 This is the simpler, non-DL planning path that pairs naturally with Tesseract.
 
@@ -160,12 +165,20 @@ High-level logic:
 
 1. Clean the OCR text into lines
 2. Detect the merchant
-3. Separate likely purchase lines from summary lines
-4. Classify item lines with the transformer-based category classifier
-5. Use summary-line logic to incorporate tax, tip, fees, and discounts
-6. Build the final category totals
+3. Use the LLM-assisted receipt parser when available to separate purchase items from summary lines
+4. Let the LLM parser suggest item categories when it can
+5. Fall back to the transformer-based semantic classifier, then classical merchant and keyword logic when needed
+6. Extract a reported receipt total from summary lines such as `total`, `balance`, or `amount due`
+7. Use summary-line logic to incorporate tax, tip, fees, and discounts
+8. Build the final spending profile with line items, category totals, and receipt-total metadata
 
-There is also an optional LLM-assisted receipt parser inside V2 that helps interpret messy OCR text more flexibly before spend totals are finalized.
+Planning V2 now blends three signals:
+
+- LLM-based receipt understanding for structure and item-level categories
+- transformer zero-shot classification for semantic categorization
+- classical merchant and keyword heuristics as a fallback when model confidence is weak
+
+This layered design matters because restaurant receipts and noisy OCR outputs often fail if the system depends on only one categorization method.
 
 Why this matters:
 
@@ -202,6 +215,13 @@ The control phase now has a graceful fallback path. If web tools time out, the a
 
 The main presentation UI is [`app.py`](app.py).
 
+The app is now organized as a presentation flow with four top-level tabs:
+
+- `Introduction`
+- `Architecture`
+- `Demo`
+- `Results & Closing`
+
 What the UI does:
 
 - upload one or more receipt images
@@ -209,14 +229,41 @@ What the UI does:
 - run OCR and planning
 - merge multiple receipts into one spending profile
 - optionally run the shared control phase
-- show:
+- show a presentation-friendly project introduction with team members
+- show an architecture page with:
+  - the two agent versions
+  - a technical flow diagram from `receipt-rewards-technical-flowchart.html`
+  - an example stage-by-stage walkthrough of perception, planning, and control outputs
+- show a demo page with:
   - recommendation summary
-  - category totals
+  - receipt total and category totals
   - receipt-by-receipt parsed text
-  - line items
+  - parsed line items
   - grounded follow-up chat
+- show a final wrap-up page with:
+  - overall results
+  - lessons learned
+  - future steps
+  - closing summary
 
 The UI is designed to be presentation-friendly rather than overly technical.
+
+One important UI detail is that the displayed receipt total is now separated from the categorized spend breakdown:
+
+- the headline receipt total uses the receipt-reported total when available
+- the category chart and recommendation still use categorized spend totals from planning
+
+This makes demos easier to interpret because OCR item over-counting does not automatically distort the main total shown to the user.
+
+Example UI views:
+
+### Demo Input View
+
+![Receipt Rewards Advisor input screen](agent_ui_input_image.png)
+
+### Demo Output View
+
+![Receipt Rewards Advisor analyzed output screen](agent_ui_ran_output.png)
 
 ## Notebook
 

@@ -12,6 +12,7 @@ from openai import OpenAI
 import pandas as pd
 from PIL import Image
 import streamlit as st
+import streamlit.components.v1 as components
 
 from src.control import CreditCardRecommender
 from src.perception import ReceiptPerception
@@ -153,6 +154,14 @@ def get_chat_client() -> OpenAI | None:
     if not api_key:
         return None
     return OpenAI(api_key=api_key)
+
+
+@st.cache_data(show_spinner=False)
+def load_flowchart_html() -> str | None:
+    flowchart_path = PROJECT_ROOT / "receipt-rewards-technical-flowchart.html"
+    if not flowchart_path.exists():
+        return None
+    return flowchart_path.read_text(encoding="utf-8")
 
 
 def inject_styles() -> None:
@@ -941,6 +950,193 @@ def render_intro_tab() -> None:
     )
 
 
+def render_results_tab() -> None:
+    st.markdown(
+        """
+        <div class="intro-shell">
+            <div class="intro-kicker">Project Wrap-Up</div>
+            <h1>Results, Lessons, and Next Steps</h1>
+            <div class="intro-copy">
+                This final page summarizes what we observed across the non-DL and DL agents, what we learned from
+                evaluation, and what we would improve next if we continued the project.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("### Overall Results")
+    result_cols = st.columns(3, gap="large")
+    with result_cols[0]:
+        st.markdown(
+            """
+            <div class="architecture-step">
+                <div class="architecture-step-label">Result 1</div>
+                <div class="architecture-step-title">The Non-DL Agent Was a Useful Baseline</div>
+                <div class="architecture-step-copy">
+                    The classical pipeline gave an interpretable baseline and worked reasonably well on cleaner receipts,
+                    but it was more brittle when merchant names or line-item wording varied.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with result_cols[1]:
+        st.markdown(
+            """
+            <div class="architecture-step">
+                <div class="architecture-step-label">Result 2</div>
+                <div class="architecture-step-title">The DL Agent Was More Robust</div>
+                <div class="architecture-step-copy">
+                    PaddleOCR plus deep planning handled noisy layouts and restaurant-style receipts more reliably,
+                    especially when receipt structure was irregular or OCR text was incomplete.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with result_cols[2]:
+        st.markdown(
+            """
+            <div class="architecture-step">
+                <div class="architecture-step-label">Result 3</div>
+                <div class="architecture-step-title">Perception Quality Drove Downstream Quality</div>
+                <div class="architecture-step-copy">
+                    The structured reference-text workflow showed that when the text input is cleaner, planning and
+                    recommendation quality improve noticeably. OCR remained the main bottleneck in the full pipeline.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("### Lessons Learned")
+    lesson_cols = st.columns(2, gap="large")
+    with lesson_cols[0]:
+        st.markdown(
+            """
+            <div class="architecture-track">
+                <div class="architecture-track-title">What Was Hard</div>
+                <div class="architecture-track-subtitle">
+                    Receipt understanding is difficult because totals, taxes, tips, and payment lines often look similar
+                    to real purchased items.
+                </div>
+                <div class="architecture-step">
+                    <div class="architecture-step-label">Lesson</div>
+                    <div class="architecture-step-title">OCR Errors Compound</div>
+                    <div class="architecture-step-copy">
+                        Small perception errors can distort category totals, spend profiles, and final recommendations.
+                    </div>
+                </div>
+                <div class="architecture-step">
+                    <div class="architecture-step-label">Lesson</div>
+                    <div class="architecture-step-title">Receipt Structure Matters</div>
+                    <div class="architecture-step-copy">
+                        The agent needs to separate line items from summary lines before categorization; otherwise totals
+                        and payment lines can get counted incorrectly.
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with lesson_cols[1]:
+        st.markdown(
+            """
+            <div class="architecture-track">
+                <div class="architecture-track-title">What Helped</div>
+                <div class="architecture-track-subtitle">
+                    Keeping the interfaces between perception, planning, and control stable made the project much easier
+                    to debug, compare, and present.
+                </div>
+                <div class="architecture-step">
+                    <div class="architecture-step-label">Lesson</div>
+                    <div class="architecture-step-title">Shared Control Made Comparison Fair</div>
+                    <div class="architecture-step-copy">
+                        Using the same LLM-based control phase for both agents made it easier to isolate the effect of
+                        perception and planning choices.
+                    </div>
+                </div>
+                <div class="architecture-step">
+                    <div class="architecture-step-label">Lesson</div>
+                    <div class="architecture-step-title">Transparent UI Was Important</div>
+                    <div class="architecture-step-copy">
+                        Showing receipt image, OCR text, spending profile, and final recommendation in one interface made
+                        failures easier to diagnose and explain.
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("### Future Steps")
+    future_cols = st.columns(3, gap="large")
+    with future_cols[0]:
+        st.markdown(
+            """
+            <div class="architecture-step">
+                <div class="architecture-step-label">Next Step</div>
+                <div class="architecture-step-title">Improve Receipt Understanding</div>
+                <div class="architecture-step-copy">
+                    Strengthen item extraction and summary-line separation so tax, tip, discounts, and totals are
+                    handled more consistently across merchants.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with future_cols[1]:
+        st.markdown(
+            """
+            <div class="architecture-step">
+                <div class="architecture-step-label">Next Step</div>
+                <div class="architecture-step-title">Expand Evaluation</div>
+                <div class="architecture-step-copy">
+                    Add more receipts, more merchant types, and clearer quantitative metrics for OCR quality, category
+                    accuracy, and recommendation usefulness.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with future_cols[2]:
+        st.markdown(
+            """
+            <div class="architecture-step">
+                <div class="architecture-step-label">Next Step</div>
+                <div class="architecture-step-title">Broaden Card Research</div>
+                <div class="architecture-step-copy">
+                    Expand the recommendation space with a richer set of current cards, benefits, and issuer rules to
+                    make the control phase more comprehensive.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("### Closing")
+    st.markdown(
+        """
+        <div class="architecture-track">
+            <div class="architecture-track-title">Final Takeaway</div>
+            <div class="architecture-track-subtitle">
+                This project uses an image-based agent that includes perception,
+                planning, and control, and it compares a non-DL and DL version on the same task.
+            </div>
+            <div class="architecture-pills">
+                <span class="architecture-pill">Visual receipt input</span>
+                <span class="architecture-pill">Two agent versions</span>
+                <span class="architecture-pill">Shared LLM control phase</span>
+                <span class="architecture-pill">Evaluation-oriented design</span>
+                <span class="architecture-pill">Transparent end-to-end UI</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_example_stage_card(label: str, title: str, copy: str, content: str) -> None:
     st.markdown(
         f"""
@@ -953,6 +1149,31 @@ def render_example_stage_card(label: str, title: str, copy: str, content: str) -
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_flowchart_section() -> None:
+    st.markdown("### Technical Flow Diagram")
+    st.caption(
+        "This diagram gives a visual overview of how receipt inputs move through perception, planning, and control."
+    )
+
+    flowchart_html = load_flowchart_html()
+    if flowchart_html is None:
+        st.info("The technical flowchart file was not found in the project directory.")
+        return
+
+    expanded_flowchart_html = flowchart_html.replace(
+        "max-width: 1100px;",
+        "width: 100%; max-width: none;",
+    ).replace(
+        "padding: 32px 32px 64px;",
+        "padding: 10px 0 32px;",
+    ).replace(
+        "margin: 0 auto;",
+        "margin: 0;",
+    )
+
+    components.html(expanded_flowchart_html, width=1800, height=1120, scrolling=False)
 
 
 def render_architecture_example_section() -> None:
@@ -1155,6 +1376,7 @@ def render_architecture_tab(active_preset_name: str, active_preset: dict[str, An
         )
 
     render_architecture_example_section()
+    render_flowchart_section()
 
 
 def build_input_assets(
@@ -1460,7 +1682,7 @@ def main() -> None:
     inject_styles()
     preset_name, run_control, selected_samples, sample_dir = render_sidebar()
     preset = PIPELINE_PRESETS[preset_name]
-    top_tabs = st.tabs(["Introduction", "Architecture", "Demo"])
+    top_tabs = st.tabs(["Introduction", "Architecture", "Demo", "Results & Closing"])
 
     with top_tabs[0]:
         render_intro_tab()
@@ -1753,6 +1975,9 @@ def main() -> None:
                                 answer = f"The assistant could not answer this question: {exc}"
                             st.markdown(answer)
                     st.session_state["chat_messages"].append({"role": "assistant", "content": answer})
+
+    with top_tabs[3]:
+        render_results_tab()
 
 
 if __name__ == "__main__":

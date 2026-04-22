@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Receipt Rewards Advisor — Technical Flowchart</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --surface: #f7f8fa;
+    --border: #e2e6ee;
+    --blue: #2563eb;
+    --blue-light: #eff6ff;
+    --amber: #d97706;
+    --amber-light: #fffbeb;
+    --green: #059669;
+    --green-light: #ecfdf5;
+    --rose: #e11d48;
+    --text: #111827;
+    --muted: #6b7280;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    padding: 32px 32px 64px;
+  }
+
+  /* ── Header ── */
+  header {
+    text-align: center;
+    margin-bottom: 52px;
+    animation: fadeDown 0.5s ease both;
+  }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--blue);
+    border: 1px solid var(--blue);
+    padding: 3px 12px;
+    border-radius: 2px;
+    display: inline-block;
+    margin-bottom: 14px;
+    opacity: 0.8;
+  }
+
+  h1 {
+    font-size: clamp(22px, 3.5vw, 36px);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  h1 em { font-style: normal; color: var(--blue); }
+
+  .subtitle {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  /* ── Outer layout: 3 columns ── */
+  .diagram {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+    max-width: 1100px;
+    margin: 0 auto;
+    animation: fadeUp 0.5s 0.15s ease both;
+  }
+
+  /* ── Column ── */
+  .col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 12px;
+    position: relative;
+  }
+
+  /* Vertical separator lines between cols */
+  .col:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 60px; bottom: 0;
+    width: 1px;
+    background: var(--border);
+    border-right: 1px dashed var(--border);
+  }
+
+  /* ── Phase header ── */
+  .phase-header {
+    width: 100%;
+    text-align: center;
+    padding: 12px 8px 16px;
+    margin-bottom: 8px;
+    border-radius: 8px 8px 0 0;
+    border-bottom: 2px solid;
+  }
+
+  .phase-header .phase-num {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    opacity: 0.6;
+  }
+
+  .phase-header .phase-title {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+
+  .col-perception .phase-header { border-color: var(--blue); background: var(--blue-light); }
+  .col-perception .phase-header .phase-num { color: var(--blue); }
+  .col-perception .phase-header .phase-title { color: var(--blue); }
+
+  .col-planning .phase-header { border-color: var(--amber); background: var(--amber-light); }
+  .col-planning .phase-header .phase-num { color: var(--amber); }
+  .col-planning .phase-header .phase-title { color: var(--amber); }
+
+  .col-control .phase-header { border-color: var(--green); background: var(--green-light); }
+  .col-control .phase-header .phase-num { color: var(--green); }
+  .col-control .phase-header .phase-title { color: var(--green); }
+
+  /* ── Step node ── */
+  .node {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 11px 14px;
+    position: relative;
+    transition: box-shadow 0.15s, transform 0.15s;
+  }
+
+  .node:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    transform: translateY(-1px);
+  }
+
+  .node-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 3px;
+    line-height: 1.3;
+  }
+
+  .node-sub {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  /* Step tag */
+  .node-tag {
+    position: absolute;
+    top: 10px; right: 10px;
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .col-perception .node-tag { background: var(--blue-light); color: var(--blue); }
+  .col-planning   .node-tag { background: var(--amber-light); color: var(--amber); }
+  .col-control    .node-tag { background: var(--green-light); color: var(--green); }
+
+  /* Diamond decision node */
+  .diamond-wrap {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+
+  .diamond {
+    width: 120px;
+    height: 60px;
+    background: var(--amber-light);
+    border: 1.5px solid var(--amber);
+    transform: perspective(200px) rotateX(10deg);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 8px;
+  }
+
+  .diamond-text {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--amber);
+    line-height: 1.3;
+  }
+
+  .branch-labels {
+    display: flex;
+    justify-content: space-between;
+    width: 140px;
+    margin-top: 3px;
+  }
+
+  .branch-label {
+    font-family: var(--mono);
+    font-size: 8.5px;
+    color: var(--muted);
+  }
+
+  /* ── Connector arrows ── */
+  .arrow-down {
+    width: 2px;
+    height: 20px;
+    background: var(--border);
+    position: relative;
+    margin: 0 auto;
+    flex-shrink: 0;
+  }
+
+  .arrow-down::after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 4px solid transparent;
+    border-top: 6px solid var(--border);
+  }
+
+  .col-perception .arrow-down { background: var(--blue); opacity: 0.3; }
+  .col-perception .arrow-down::after { border-top-color: var(--blue); }
+  .col-planning   .arrow-down { background: var(--amber); opacity: 0.3; }
+  .col-planning   .arrow-down::after { border-top-color: var(--amber); }
+  .col-control    .arrow-down { background: var(--green); opacity: 0.3; }
+  .col-control    .arrow-down::after { border-top-color: var(--green); }
+
+  /* Arrow label inline */
+  .arrow-label-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  .arrow-tag {
+    font-family: var(--mono);
+    font-size: 8px;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 2px 7px;
+    border-radius: 10px;
+    margin: 2px 0;
+    white-space: nowrap;
+  }
+
+  /* Merge node (shared output) */
+  .merge-node {
+    background: #f0fdf4;
+    border: 1.5px solid var(--green);
+    border-radius: 8px;
+    padding: 12px 16px;
+    text-align: center;
+    width: 100%;
+  }
+
+  .merge-node .merge-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 4px;
+    opacity: 0.7;
+  }
+
+  .merge-node .merge-text {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--green);
+  }
+
+  /* ── Interface band between phases ── */
+  .interface-band {
+    max-width: 1100px;
+    margin: 20px auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: fadeUp 0.5s 0.25s ease both;
+  }
+
+  .band-line { flex: 1; height: 1px; background: var(--border); border-top: 1px dashed var(--border); }
+
+  .band-pill {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 4px 14px;
+    border-radius: 20px;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .band-pill .band-icon { font-size: 12px; }
+
+  /* ── Output row ── */
+  .output-row {
+    max-width: 1100px;
+    margin: 0 auto;
+    animation: fadeUp 0.5s 0.4s ease both;
+  }
+
+  .output-connector {
+    display: flex;
+    justify-content: center;
+    margin: 16px 0 12px;
+  }
+
+  .output-connector svg { display: block; }
+
+  .output-card {
+    background: linear-gradient(120deg, #ecfdf5 0%, #eff6ff 100%);
+    border: 1.5px solid var(--green);
+    border-radius: 10px;
+    padding: 20px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+  .output-left .out-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 5px;
+  }
+
+  .output-left .out-title {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--text);
+  }
+
+  .output-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .out-pill {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    background: #fff;
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-weight: 600;
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* stagger col animations */
+  .col-perception { animation: fadeUp 0.5s 0.1s ease both; }
+  .col-planning   { animation: fadeUp 0.5s 0.2s ease both; }
+  .col-control    { animation: fadeUp 0.5s 0.3s ease both; }
+</style>
+</head>
+<body>
+
+
+
+<!-- Phase headers row -->
+<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; max-width:1100px; margin:0 auto 0; animation: fadeDown 0.5s ease both;">
+  <div style="text-align:center; padding:12px 8px 14px; border-bottom:2px solid #2563eb; background:#eff6ff; border-radius:8px 8px 0 0; margin:0 12px;">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.2em; text-transform:uppercase; color:#2563eb; opacity:0.6; margin-bottom:3px;">Phase 01</div>
+    <div style="font-size:15px; font-weight:800; color:#2563eb;">🧾 Perception</div>
+  </div>
+  <div style="text-align:center; padding:12px 8px 14px; border-bottom:2px solid #d97706; background:#fffbeb; border-radius:8px 8px 0 0; margin:0 12px;">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.2em; text-transform:uppercase; color:#d97706; opacity:0.6; margin-bottom:3px;">Phase 02</div>
+    <div style="font-size:15px; font-weight:800; color:#d97706;">🧠 Planning</div>
+  </div>
+  <div style="text-align:center; padding:12px 8px 14px; border-bottom:2px solid #059669; background:#ecfdf5; border-radius:8px 8px 0 0; margin:0 12px;">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.2em; text-transform:uppercase; color:#059669; opacity:0.6; margin-bottom:3px;">Phase 03</div>
+    <div style="font-size:15px; font-weight:800; color:#059669;">💳 Control</div>
+  </div>
+</div>
+
+<!-- Three-column diagram -->
+<div class="diagram">
+
+  <!-- ══ PERCEPTION ══ -->
+  <div class="col col-perception">
+
+
+    <!-- Input -->
+    <div class="node">
+      <div class="node-tag">INPUT</div>
+      <div class="node-label">Receipt Image</div>
+      <div class="node-sub">.jpg / .png upload</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <!-- Branch: 3 modes -->
+    <div class="node" style="border-style: dashed; text-align:center;">
+      <div class="node-label" style="text-align:center;">Select OCR Mode</div>
+      <div class="node-sub" style="text-align:center; margin-top:4px; display:flex; gap:6px; justify-content:center; flex-wrap:wrap;">
+        <span style="background:#eff6ff;color:#2563eb;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;">Tesseract</span>
+        <span style="background:#eff6ff;color:#2563eb;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;">PaddleOCR</span>
+        <span style="background:#eff6ff;color:#2563eb;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;">Labels</span>
+      </div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="node">
+      <div class="node-tag">S1</div>
+      <div class="node-label">Preprocess Image</div>
+      <div class="node-sub">Grayscale → Blur → Threshold → Deskew</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="node">
+      <div class="node-tag">S2</div>
+      <div class="node-label">Run OCR / Parse Labels</div>
+      <div class="node-sub">Extract text lines + confidence scores</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="merge-node">
+      <div class="merge-label">Output</div>
+      <div class="merge-text">Plain Receipt Text</div>
+    </div>
+  </div>
+
+  <!-- ══ PLANNING ══ -->
+  <div class="col col-planning">
+
+
+    <div class="node">
+      <div class="node-tag">INPUT</div>
+      <div class="node-label">Plain Receipt Text</div>
+      <div class="node-sub">from Perception phase</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="node">
+      <div class="node-tag">S1</div>
+      <div class="node-label">Clean & Tokenize</div>
+      <div class="node-sub">Normalize lines, strip noise</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="node">
+      <div class="node-tag">S2</div>
+      <div class="node-label">Detect Merchant</div>
+      <div class="node-sub">Header-pattern matching</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="node">
+      <div class="node-tag">S3</div>
+      <div class="node-label">Extract Line Items</div>
+      <div class="node-sub">Separate items vs. summary lines</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <!-- Decision -->
+    <div class="node" style="border-style:dashed; text-align:center;">
+      <div class="node-label" style="text-align:center;">Classify Items</div>
+      <div class="node-sub" style="text-align:center; margin-top:4px; display:flex; gap:6px; justify-content:center;">
+        <span style="background:#fffbeb;color:#d97706;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;">V1 · .pkl</span>
+        <span style="background:#fffbeb;color:#d97706;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;">V2 · Transformer</span>
+      </div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="node">
+      <div class="node-tag">S4</div>
+      <div class="node-label">Aggregate Category Totals</div>
+      <div class="node-sub">Tax, tip, fees, discounts resolved</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="merge-node" style="background:#fffbeb; border-color:var(--amber);">
+      <div class="merge-label" style="color:var(--amber);">Output</div>
+      <div class="merge-text" style="color:var(--amber);">SpendingProfile</div>
+    </div>
+  </div>
+
+  <!-- ══ CONTROL ══ -->
+  <div class="col col-control">
+
+
+    <div class="node">
+      <div class="node-tag">INPUT</div>
+      <div class="node-label">SpendingProfile</div>
+      <div class="node-sub">merchant + category totals</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="node">
+      <div class="node-tag">S1</div>
+      <div class="node-label">Build LLM Prompt</div>
+      <div class="node-sub">Profile → structured reasoning prompt</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="node">
+      <div class="node-tag">S2</div>
+      <div class="node-label">Web Search</div>
+      <div class="node-sub">tool_registry.py · query current cards</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="node">
+      <div class="node-tag">S3</div>
+      <div class="node-label">Fetch & Verify Pages</div>
+      <div class="node-sub">Live retrieval + card validation</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <!-- Fallback decision -->
+    <div class="node" style="border-style:dashed; text-align:center;">
+      <div class="node-label" style="text-align:center;">Web tools available?</div>
+      <div class="node-sub" style="text-align:center; margin-top:4px; display:flex; gap:6px; justify-content:center;">
+        <span style="background:#ecfdf5;color:#059669;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;">Yes → Full rec</span>
+        <span style="background:#fff1f2;color:#e11d48;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;">No → Fallback</span>
+      </div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="node">
+      <div class="node-tag">S4</div>
+      <div class="node-label">Generate JSON Output</div>
+      <div class="node-sub">Primary, runner-up, ranked cards, sources</div>
+    </div>
+    <div class="arrow-down"></div>
+
+    <div class="merge-node">
+      <div class="merge-label">Output</div>
+      <div class="merge-text">Card Recommendation JSON</div>
+    </div>
+  </div>
+
+</div><!-- /diagram -->
+
+<!-- Output strip -->
+<div class="output-row">
+  <div class="output-connector">
+    <svg width="2" height="28" viewBox="0 0 2 28">
+      <line x1="1" y1="0" x2="1" y2="22" stroke="#d1d5db" stroke-width="2"/>
+      <polygon points="1,28 -3,20 5,20" fill="#d1d5db"/>
+    </svg>
+  </div>
+  <div class="output-card">
+    <div class="output-left">
+      <div class="out-tag">Streamlit UI · Final Output</div>
+      <div class="out-title">Card Recommendation</div>
+    </div>
+    <div class="output-pills">
+      <div class="out-pill">Primary Pick</div>
+      <div class="out-pill">Runner-up</div>
+      <div class="out-pill">Ranked Cards</div>
+      <div class="out-pill">Explanation</div>
+      <div class="out-pill">Sources</div>
+      <div class="out-pill">Follow-up Chat</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
