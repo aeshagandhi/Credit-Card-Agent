@@ -1,8 +1,8 @@
 # Receipt Rewards Advisor
 
-Receipt Rewards Advisor is a school project that turns receipt images into a spending profile and then recommends a credit card using an LLM-driven control phase.
+Receipt Rewards Advisor is a project that turns receipt images into a spending profile and then recommends a credit card using an LLM-driven control phase.
 
-The project is organized around the agent pipeline described in the proposal:
+The project is organized around the agent pipeline described below:
 
 1. Perception: read the receipt
 2. Planning: convert raw text into categorized spend
