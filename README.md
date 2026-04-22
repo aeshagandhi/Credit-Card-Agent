@@ -1,9 +1,10 @@
-# Receipt Rewards Advisor
+# Receipt-to-Card Recommendation Agent
+
 Authors: Aesha Gandhi, Pranshul Bhatnagar, Gaurav Law
 
 [Video Walkthrough](https://youtu.be/q-19Q_HRIhE)
 
-Receipt Rewards Advisor is a project that turns receipt images into a spending profile and then recommends a credit card using an LLM-driven control phase.
+Receipt-to-Card Recommendation Agent is a project that turns receipt images into a spending profile and then recommends a credit card using an LLM-driven control phase.
 
 The project is organized around the agent pipeline described below:
 
