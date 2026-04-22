@@ -8,8 +8,6 @@ The project is organized around the agent pipeline described below:
 2. Planning: convert raw text into categorized spend
 3. Control: research current cards and recommend the best fit
 
-The repo is intentionally scoped to one dataset and three supported perception modes so it stays simple and presentation-ready.
-
 ## What Is Included
 
 The current codebase supports these end-to-end workflows:
@@ -127,7 +125,6 @@ Why it is useful:
 
 - provides a cleaner reference input
 - helps separate OCR errors from planning errors
-- useful in the notebook and demo when you want side-by-side comparison
 
 ### 2. Planning
 
@@ -190,9 +187,7 @@ Why this matters:
 
 Control lives in [`src/control.py`](src/control.py).
 
-This phase is shared by all pipeline versions.
-
-Its job is to turn a spending profile into a card recommendation.
+The control is directed at turning the spending profile into a card recommendation.
 
 High-level logic:
 
@@ -215,7 +210,7 @@ The control phase now has a graceful fallback path. If web tools time out, the a
 
 The main presentation UI is [`app.py`](app.py).
 
-The app is now organized as a presentation flow with four top-level tabs:
+The app is now organized as follows:
 
 - `Introduction`
 - `Architecture`
@@ -229,7 +224,6 @@ What the UI does:
 - run OCR and planning
 - merge multiple receipts into one spending profile
 - optionally run the shared control phase
-- show a presentation-friendly project introduction with team members
 - show an architecture page with:
   - the two agent versions
   - a technical flow diagram from `receipt-rewards-technical-flowchart.html`
@@ -245,8 +239,6 @@ What the UI does:
   - lessons learned
   - future steps
   - closing summary
-
-The UI is designed to be presentation-friendly rather than overly technical.
 
 One important UI detail is that the displayed receipt total is now separated from the categorized spend breakdown:
 
@@ -271,8 +263,6 @@ The main notebook is:
 
 - [`notebooks/execution_notebook.ipynb`](notebooks/execution_notebook.ipynb)
 
-It is meant for side-by-side comparison of the supported workflows on the same receipt.
-
 Typical comparison setup:
 
 - `tesseract + planning v1`
@@ -287,9 +277,11 @@ This is useful for showing:
 
 ## Running The Project
 
-### 1. Install dependencies
+### 1. Clone + Install dependencies
 
 ```bash
+git clone https://github.com/aeshagandhi/Credit-Card-Agent.git
+
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -342,16 +334,3 @@ The most important design choice in this project is that the interface between p
 No matter which perception method you choose, the next phase still receives plain receipt text.
 
 No matter which planning method you choose, the control phase still receives the same `SpendingProfile` structure.
-
-That makes the project easy to compare, easy to explain, and easy to swap components without rewriting the rest of the pipeline.
-
-## Current Scope
-
-The repo is now intentionally limited to:
-
-- one receipt dataset
-- three supported perception modes
-- two planning versions
-- one shared LLM control phase
-
-That keeps the codebase cleaner and makes the final demo easier to understand.
